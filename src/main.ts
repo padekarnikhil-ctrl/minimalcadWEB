@@ -40,6 +40,9 @@ const engine = new Engine(viewport, commandBar, () => view.requestRedraw());
 
 commandBar.addEventListener("inputSubmitted", (e) => {
   engine.commandManager.textInput((e as CustomEvent<string>).detail);
+  // A typed value always wins over a finger still down mid touch point-pick
+  // preview -- see canvasView.ts's own doc comment on this method.
+  view.discardInFlightTouchPointPick();
   view.requestRedraw();
 });
 commandBar.addEventListener("escapePressed", () => {

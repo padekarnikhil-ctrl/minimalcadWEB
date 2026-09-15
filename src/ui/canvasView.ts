@@ -576,6 +576,22 @@ export class CanvasView {
     this.touchCursorScreenPos = null;
   }
 
+  /** Call whenever a point/value commits some way OTHER than this finger's
+   *  own release -- currently: typing a value into the command bar (physical
+   *  keyboard or the popup numpad) and submitting it -- while that finger is
+   *  still down mid-preview. Disowns its pointerId entirely, as if it had
+   *  already lifted, so the *actual*, later lift doesn't also fire a second,
+   *  unintended commit for whatever the command is now asking for. Safe to
+   *  call unconditionally (main.ts does, on every submitted value): a no-op
+   *  whenever no touch point-pick is in flight, e.g. every desktop mouse/
+   *  keyboard submission. */
+  discardInFlightTouchPointPick(): void {
+    if (this.touchPointPickPointerId === null) return;
+    this.activeTouches.delete(this.touchPointPickPointerId);
+    this.cancelTouchPointPickPreview();
+    this.requestRedraw();
+  }
+
   /** Cleanly abandons an in-progress single-touch drag/box-select the moment
    *  a second finger arrives to start a pinch -- e.g. dragging an entity
    *  with one finger, then accidentally touching a second finger down.
