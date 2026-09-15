@@ -31,10 +31,11 @@ const COLOR_CROSSING_SELECT = "rgba(90, 210, 110, 1)";
 const COLOR_SNAP_MARKER = "#ffff00";
 const SNAP_MARKER_SCREEN_SIZE = 9.0;
 
-const GRIP_COMMAND_NAMES: Record<"line_extend" | "move_grip" | "circle_resize", string> = {
+const GRIP_COMMAND_NAMES: Record<"line_extend" | "move_grip" | "circle_resize" | "dimension_grip", string> = {
   line_extend: "gripextend",
   move_grip: "movegrip",
   circle_resize: "gripresize",
+  dimension_grip: "dimensiongrip",
 };
 
 export class CanvasView {
@@ -135,6 +136,16 @@ export class CanvasView {
     const commandActive = this.engine.commandManager.currentCommand !== null;
 
     if (commandActive) {
+      // Without this, a click that makes the active command call
+      // commandBar.enableInput() (e.g. Leader's landing-point pick, or
+      // Rectangle's corner pick before its width/height prompt) gets its
+      // focus silently stolen right back: per spec, an unprevented
+      // mousedown's default "focus the clicked element" step runs AFTER
+      // every mousedown listener returns, so it fires after -- and
+      // overrides -- enableInput()'s own focus() call below, leaving the
+      // canvas focused instead of the input field. The next keystroke then
+      // goes nowhere a command is reading from.
+      e.preventDefault();
       if (e.button === 0) this.engine.commandManager.leftClick(worldPos);
       else if (e.button === 2) this.engine.commandManager.rightClick(worldPos);
       this.engine.commandBar.enableInput();

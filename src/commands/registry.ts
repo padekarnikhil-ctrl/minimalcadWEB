@@ -22,9 +22,15 @@ import { OffsetCommand } from "./offset";
 import { FilletCommand } from "./fillet";
 import { ChamferCommand } from "./chamfer";
 import { TextCommand } from "./text";
+import { LinearDimensionCommand } from "./linearDimension";
+import { AlignedDimensionCommand } from "./alignedDimension";
+import { AngularDimensionCommand } from "./angularDimension";
+import { DiameterDimensionCommand, RadiusDimensionCommand } from "./radialDimension";
+import { LeaderCommand } from "./leader";
 import { MoveGripCommand } from "./grips/moveGrip";
 import { ExtendGripCommand } from "./grips/extendGrip";
 import { CircleResizeGripCommand } from "./grips/circleResizeGrip";
+import { DimensionGripCommand } from "./grips/dimensionGrip";
 
 export interface RegistryEntry {
   factory: CommandFactory;
@@ -46,12 +52,19 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   fillet: { factory: (engine) => new FilletCommand(engine), aliases: ["f"] },
   chamfer: { factory: (engine) => new ChamferCommand(engine), aliases: ["cha"] },
   text: { factory: (engine) => new TextCommand(engine), aliases: ["x"] },
+  linear: { factory: (engine) => new LinearDimensionCommand(engine), aliases: ["d", "dli"] },
+  aligned: { factory: (engine) => new AlignedDimensionCommand(engine), aliases: ["dal"] },
+  angular: { factory: (engine) => new AngularDimensionCommand(engine), aliases: ["dan"] },
+  diameter: { factory: (engine) => new DiameterDimensionCommand(engine), aliases: ["ddi"] },
+  radius: { factory: (engine) => new RadiusDimensionCommand(engine), aliases: ["dra"] },
+  leader: { factory: (engine) => new LeaderCommand(engine), aliases: ["le", "lead"] },
   // Contextual-only: entered directly via canvasView's grip hit-test, never typed.
   movegrip: { factory: (engine) => new MoveGripCommand(engine), aliases: [] },
   gripextend: { factory: (engine) => new ExtendGripCommand(engine), aliases: [] },
   gripresize: { factory: (engine) => new CircleResizeGripCommand(engine), aliases: [] },
+  dimensiongrip: { factory: (engine) => new DimensionGripCommand(engine), aliases: [] },
 };
 
 /** Grip-entry-only commands excluded from blank-Enter "repeat last command" --
  *  a blank Enter after a grip edit shouldn't re-arm a grip tool with nothing to act on. */
-export const NON_REPEATABLE = new Set<string>(["movegrip", "gripextend", "gripresize"]);
+export const NON_REPEATABLE = new Set<string>(["movegrip", "gripextend", "gripresize", "dimensiongrip"]);

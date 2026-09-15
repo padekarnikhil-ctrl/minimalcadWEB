@@ -4,54 +4,19 @@
  *
  * Ported from entities/text.py: a text-string annotation pinned by its
  * lower-left baseline insertion point, with a single rotation angle applied
- * about that point. Font metrics come from Canvas 2D's own measureText()
- * (this port's analogue of Qt's QFontMetricsF) via a lazily-created,
- * module-level offscreen canvas -- reused across every Text instance rather
- * than spinning one up per call. In a non-browser environment (Vitest's
- * "node" test environment has no `document`), measurement falls back to a
- * fixed-pitch approximation so geometry (bounds/hit-test/serialize) stays
- * fully testable without a real canvas.
+ * about that point. Font metrics come from textMetrics.ts's shared
+ * measureText() (this port's analogue of Qt's QFontMetricsF).
  */
 
 import type { Bounds, Point } from "../core/types";
 import type { Entity, Viewport } from "./entity";
 import { rotatePoint } from "./style";
+import { FONT_FAMILY, measureText as measureAt } from "./textMetrics";
 
 export const DEFAULT_HEIGHT = 3.5;
-const FONT_FAMILY = "sans-serif";
 const COLOR_NORMAL = "#ffffff";
 const COLOR_SELECTED = "#00ffff"; // matches entities/text.py's own distinct cyan, not the app-wide blue
 const COLOR_PREVIEW = "#00ff00"; // matches entities/text.py's own distinct green preview, not just dashed
-
-interface TextMetricsLite {
-  width: number;
-  ascent: number;
-  descent: number;
-}
-
-let measureCtx: CanvasRenderingContext2D | null | undefined;
-
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-  if (measureCtx === undefined) {
-    measureCtx =
-      typeof document === "undefined" ? null : (document.createElement("canvas").getContext("2d") ?? null);
-  }
-  return measureCtx;
-}
-
-/** Local-frame text metrics at a given pixel font size. Falls back to a fixed-pitch
- *  approximation (no real font/canvas involved) when no canvas is available. */
-function measureAt(text: string, fontPx: number): TextMetricsLite {
-  const ctx = getMeasureCtx();
-  if (ctx !== null) {
-    ctx.font = `${fontPx}px ${FONT_FAMILY}`;
-    const m = ctx.measureText(text);
-    const ascent = m.actualBoundingBoxAscent || fontPx * 0.8;
-    const descent = m.actualBoundingBoxDescent || fontPx * 0.2;
-    return { width: m.width, ascent, descent };
-  }
-  return { width: text.length * fontPx * 0.6, ascent: fontPx * 0.8, descent: fontPx * 0.2 };
-}
 
 export class Text implements Entity {
   position: Point;

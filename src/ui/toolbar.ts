@@ -28,6 +28,12 @@ const DISPLAY_NAMES: Record<string, string> = {
   fillet: "Fillet",
   chamfer: "Chamfer",
   text: "Text",
+  linear: "Linear Dim",
+  aligned: "Aligned Dim",
+  angular: "Angular Dim",
+  diameter: "Diameter Dim",
+  radius: "Radius Dim",
+  leader: "Leader",
 };
 
 function displayName(name: string): string {

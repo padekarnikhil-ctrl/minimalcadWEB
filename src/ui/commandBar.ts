@@ -96,6 +96,13 @@ export class CommandBar extends EventTarget {
   disableInput(): void {
     this.inputField.disabled = true;
     this.inputField.blur();
+    // blur() alone hands focus to <body> (nothing else claims it), silently
+    // breaking canvas keyboard routing -- Escape-to-cancel, Delete, and
+    // single-letter typed commands -- until the next canvas click. Kept as
+    // an event (like escapePressed/orthoClicked) rather than a direct
+    // canvas reference, matching this class's canvas-agnostic design; see
+    // main.ts's listener.
+    this.dispatchEvent(new CustomEvent("inputDisabled"));
   }
 
   clear(): void {

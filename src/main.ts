@@ -50,6 +50,11 @@ commandBar.addEventListener("escapePressed", () => {
 // Drives a live typing preview (e.g. TextCommand's ghost string) -- the
 // command itself just reads commandBar.text() from its own draw().
 commandBar.addEventListener("textChanged", () => view.requestRedraw());
+// Whenever the command bar stops accepting text (between point-picks mid-
+// command, or back at READY), hand keyboard focus back to the canvas so
+// Escape/Delete/single-letter typed commands keep working -- see
+// commandBar.ts's disableInput() doc comment.
+commandBar.addEventListener("inputDisabled", () => canvasEl.focus());
 commandBar.addEventListener("orthoClicked", () => {
   engine.toggleOrtho();
 });

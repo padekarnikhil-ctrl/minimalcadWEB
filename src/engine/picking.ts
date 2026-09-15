@@ -13,6 +13,7 @@ import type { Entity } from "../entities/entity";
 import type { Selection } from "../core/selection";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
+import { Dimension } from "../entities/dimension";
 
 export function entityAt<T extends Entity>(entities: T[], worldPos: Point, tolerance: number): T | null {
   for (const entity of entities) {
@@ -21,15 +22,16 @@ export function entityAt<T extends Entity>(entities: T[], worldPos: Point, toler
   return null;
 }
 
-export type GripKind = "line_extend" | "move_grip" | "circle_resize";
+export type GripKind = "line_extend" | "move_grip" | "circle_resize" | "dimension_grip";
 
 export interface GripHit {
   kind: GripKind;
   entity: Entity;
   /** line_extend: true=start point, false=end point.
    *  move_grip: the anchor point (Line midpoint / Circle center).
-   *  circle_resize: the matched quadrant point. */
-  extra: boolean | Point;
+   *  circle_resize: the matched quadrant point.
+   *  dimension_grip: the Dimension.data key being dragged (e.g. "p1"). */
+  extra: boolean | Point | string;
 }
 
 function dist(a: Point, b: Point): number {
@@ -62,6 +64,15 @@ export function gripAt(selection: Selection, worldPos: Point, tolerance: number)
     for (const q of entity.quadrantPoints()) {
       if (dist(worldPos, q) <= tolerance) {
         return { kind: "circle_resize", entity, extra: q };
+      }
+    }
+    return null;
+  }
+
+  if (entity instanceof Dimension) {
+    for (const [key, pt] of entity.gripItems()) {
+      if (dist(worldPos, pt) <= tolerance) {
+        return { kind: "dimension_grip", entity, extra: key };
       }
     }
     return null;

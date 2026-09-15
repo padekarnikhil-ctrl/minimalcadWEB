@@ -13,9 +13,14 @@ import { Circle } from "./circle";
 import { Arc } from "./arc";
 import { Polyline } from "./polyline";
 import { Text } from "./text";
+import { Dimension } from "./dimension";
 import type { Entity } from "./entity";
 
 type EntityFromDict = (data: Record<string, unknown>) => Entity;
+
+// linear/aligned/angular/diameter/radius/leader all construct through the
+// same Dimension.fromDict -- mirrors document.py's _DIMENSION_TYPES set.
+const DIMENSION_TYPES = ["linear", "aligned", "angular", "diameter", "radius", "leader"] as const;
 
 export const ENTITY_TYPES: Record<string, EntityFromDict> = {
   line: (data) => Line.fromDict(data),
@@ -23,4 +28,5 @@ export const ENTITY_TYPES: Record<string, EntityFromDict> = {
   arc: (data) => Arc.fromDict(data),
   polyline: (data) => Polyline.fromDict(data),
   text: (data) => Text.fromDict(data),
+  ...Object.fromEntries(DIMENSION_TYPES.map((t) => [t, (data: Record<string, unknown>) => Dimension.fromDict(data)])),
 };
