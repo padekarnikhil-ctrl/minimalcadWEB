@@ -116,18 +116,30 @@ export class CanvasView {
   private pendingTouch: PendingTouch | null = null;
   private touchGesture: TwoFingerGesture | null = null;
 
-  // Touch point-pick preview: while a command is actively awaiting a point
-  // and a single finger drives it, the fingertip's own screen position is
-  // never used directly -- only to derive an offset preview cursor (see
-  // offsetTouchCursor()), fed live into the command's own mouseMove()/snap()
-  // exactly like a mouse hover would be, so its existing preview/snap-marker
-  // drawing already tracks it with no new drawing logic of its own needed.
-  // Nothing commits to the command until the finger lifts. touchFingerScreenPos
-  // is kept only so drawTouchOffsetCursor() can draw the connector line back
-  // to the real contact point.
+  // Touch point-pick preview -- a two-phase aim/confirm model, see
+  // handleTouchPointerDown's own doc comment for the full rationale.
+  //
+  // touchPointPickPointerId: set while a resolved single finger is actively
+  // being dragged to aim the CURRENT point-pick step; null once it lifts.
+  // touchFingerScreenPos/touchCursorScreenPos: the raw fingertip and its
+  // OFFSET preview cursor (see offsetTouchCursor()) -- fed live into the
+  // command's own mouseMove()/snap() exactly like a mouse hover would be, so
+  // its existing preview/snap-marker drawing already tracks it with no new
+  // drawing logic of its own needed. These deliberately survive a lift
+  // (frozen in place) rather than clearing, so the ghost stays visible while
+  // pendingCommandCandidate awaits confirmation -- see drawTouchOffsetCursor().
+  // pendingCommandCandidate: the WORLD position of the current step's
+  // candidate once a touch has resolved and lifted (or tapped) without
+  // committing -- committed only by a LATER touch or a typed value.
+  // pendingCommandTouch: mirrors pendingTouch's own pinch-safety deferral
+  // (see handleTouchPointerDown's doc comment) but for a commandActive touch,
+  // whose eventual resolution means something different -- confirm-then-aim
+  // rather than click-or-drag.
   private touchPointPickPointerId: number | null = null;
   private touchFingerScreenPos: Point | null = null;
   private touchCursorScreenPos: Point | null = null;
+  private pendingCommandCandidate: Point | null = null;
+  private pendingCommandTouch: PendingTouch | null = null;
 
   constructor(canvas: HTMLCanvasElement, viewport: Viewport, engine: Engine) {
     this.canvas = canvas;
@@ -456,13 +468,25 @@ export class CanvasView {
   // conservative choice most touch drawing/map apps make).
   //
   // One finger while a command is actively awaiting a point (point-picking,
-  // e.g. Line's next vertex): the fingertip's raw position is never fed to
-  // the command at all -- see beginTouchPointPickPreview()'s doc comment.
-  // This branch takes priority over the tap/drag deferral above specifically
-  // because a command's leftClick has no separate "click vs. drag" meaning
-  // the way plain selection does (a body-drag vs. a select-click on release),
-  // so there's nothing to disambiguate: every point-pick previews live and
-  // commits once, on release, wherever the preview cursor ends up.
+  // e.g. Line's next vertex): a two-phase AIM / CONFIRM model, not a tap-or-
+  // drag deferral like the plain-selection case above -- a fingertip
+  // inevitably covers the very thing it's pointing at, so a touch-driven
+  // point-pick previews (offset cursor, see offsetTouchCursor()) but never
+  // commits on its own lift. Lifting just freezes the preview in place as
+  // `pendingCommandCandidate`, staying visible so you can look at it,
+  // uncovered, before deciding. That candidate is committed only by:
+  //   - a LATER touch (resolveCommandTouch()) -- using the candidate's own
+  //     stored position, never that new touch's -- which then immediately
+  //     starts aiming the NEXT step with that same touch, so a whole
+  //     multi-point command chains as one continuous aim-confirm-aim-confirm
+  //     motion; or
+  //   - a typed dynamic-input value submitted via the command bar
+  //     (discardInFlightTouchPointPick(), called from main.ts).
+  // Resolving "is this new touch a genuine single-finger confirm, or the
+  // first finger of an incoming pinch" uses the exact same deferred-
+  // threshold mechanism as pendingTouch above (pendingCommandTouch), for the
+  // same reason: unconditionally confirming on raw pointerdown would fire a
+  // spurious commit the instant a pinch's first finger lands.
 
   private handleTouchPointerDown(e: PointerEvent): void {
     const screenPos = this.eventToScreenPoint(e);
@@ -470,8 +494,7 @@ export class CanvasView {
 
     if (this.activeTouches.size === 1) {
       if (this.engine.commandManager.currentCommand !== null) {
-        this.touchPointPickPointerId = e.pointerId;
-        this.updateTouchPointPickPreview(screenPos);
+        this.pendingCommandTouch = { pointerId: e.pointerId, screenPos, worldPos: this.viewport.screenToWorld(screenPos) };
         return;
       }
       this.pendingTouch = { pointerId: e.pointerId, screenPos, worldPos: this.viewport.screenToWorld(screenPos) };
@@ -480,7 +503,8 @@ export class CanvasView {
 
     if (this.activeTouches.size === 2) {
       this.pendingTouch = null;
-      this.cancelTouchPointPickPreview();
+      this.pendingCommandTouch = null;
+      this.freezeActiveTouchPointPick();
       this.abortSingleTouchInteraction();
       const [a, b] = [...this.activeTouches.values()] as [Point, Point];
       this.touchGesture = { midpoint: midpointOf(a, b), distance: pointDistance(a, b) };
@@ -495,6 +519,16 @@ export class CanvasView {
 
     if (this.touchPointPickPointerId === e.pointerId) {
       this.updateTouchPointPickPreview(this.eventToScreenPoint(e));
+      return;
+    }
+
+    if (this.pendingCommandTouch !== null && this.pendingCommandTouch.pointerId === e.pointerId) {
+      const currentScreen = this.eventToScreenPoint(e);
+      if (pointDistance(currentScreen, this.pendingCommandTouch.screenPos) < TOUCH_DRAG_THRESHOLD_PX) return;
+      this.pendingCommandTouch = null;
+      this.resolveCommandTouch();
+      this.touchPointPickPointerId = e.pointerId;
+      this.updateTouchPointPickPreview(currentScreen);
       return;
     }
 
@@ -534,17 +568,31 @@ export class CanvasView {
     if (!wasTracked) return;
 
     if (this.touchPointPickPointerId === e.pointerId) {
-      const cursorScreenPos = this.touchCursorScreenPos;
-      this.cancelTouchPointPickPreview();
-      // Re-checks currentCommand rather than trusting the branch that got us
-      // here: the command may have been cancelled (e.g. Escape) while this
-      // finger was still down, in which case there's nothing left to commit
-      // -- without this guard, lifting the finger would fall through
-      // runPointerDown's now-"no command active" branch and fire a stray
-      // selection pick at the abandoned preview position instead.
-      if (cursorScreenPos !== null && this.engine.commandManager.currentCommand !== null) {
-        this.runPointerDown(this.viewport.screenToWorld(cursorScreenPos), 0, false);
-        this.runPointerUp();
+      // An ordinary lift at the end of an active aim: freeze wherever the
+      // preview currently is as the new pending candidate. Deliberately
+      // does NOT commit -- see this section's own header comment.
+      this.touchPointPickPointerId = null;
+      if (this.touchCursorScreenPos !== null) {
+        this.pendingCommandCandidate = this.viewport.screenToWorld(this.touchCursorScreenPos);
+      }
+      this.requestRedraw();
+      return;
+    }
+
+    if (this.pendingCommandTouch !== null && this.pendingCommandTouch.pointerId === e.pointerId) {
+      // A plain tap (never moved past the drag threshold): resolves exactly
+      // like a drag would -- confirms whatever was PREVIOUSLY pending using
+      // its own stored position, then freezes this tap's own (undragged)
+      // position as the new pending candidate, rather than committing it
+      // immediately, for the same "look before you commit" reason as a drag.
+      const { screenPos } = this.pendingCommandTouch;
+      this.pendingCommandTouch = null;
+      this.resolveCommandTouch();
+      if (this.engine.commandManager.currentCommand !== null) {
+        this.touchFingerScreenPos = screenPos;
+        this.touchCursorScreenPos = this.offsetTouchCursor(screenPos);
+        this.engine.commandManager.mouseMove(this.viewport.screenToWorld(this.touchCursorScreenPos));
+        this.pendingCommandCandidate = this.viewport.screenToWorld(this.touchCursorScreenPos);
       }
       this.requestRedraw();
       return;
@@ -582,26 +630,55 @@ export class CanvasView {
     return { x: fingerScreenPos.x, y };
   }
 
-  private cancelTouchPointPickPreview(): void {
-    this.touchPointPickPointerId = null;
-    this.touchFingerScreenPos = null;
-    this.touchCursorScreenPos = null;
+  /** Commits whatever candidate was left pending from the PREVIOUS point-pick
+   *  step (if any) using ITS stored position -- never the new touch that
+   *  triggered this -- so that touch is free to immediately start aiming the
+   *  step that follows. A no-op the first time a command asks for a point,
+   *  when nothing is pending yet, and if the command was cancelled (e.g.
+   *  Escape) while the candidate sat pending -- there's nothing left to
+   *  confirm into. */
+  private resolveCommandTouch(): void {
+    if (this.pendingCommandCandidate === null) return;
+    const candidate = this.pendingCommandCandidate;
+    this.pendingCommandCandidate = null;
+    if (this.engine.commandManager.currentCommand === null) return;
+    this.runPointerDown(candidate, 0, false);
   }
 
-  /** Call whenever a point/value commits some way OTHER than this finger's
-   *  own release -- currently: typing a value into the command bar (physical
-   *  keyboard or the popup numpad) and submitting it -- while that finger is
-   *  still down mid-preview. Disowns its pointerId entirely, as if it had
-   *  already lifted, so the *actual*, later lift doesn't also fire a second,
-   *  unintended commit for whatever the command is now asking for. Safe to
-   *  call unconditionally (main.ts does, on every submitted value): a no-op
-   *  whenever no touch point-pick is in flight, e.g. every desktop mouse/
-   *  keyboard submission. */
-  discardInFlightTouchPointPick(): void {
+  /** Freezes whatever's currently being actively aimed (if anything) as the
+   *  pending candidate, exactly as an ordinary lift would -- used when a
+   *  second finger interrupts an in-progress aim to start a pinch, so the
+   *  in-progress aim is paused, not lost (mirrors abortSingleTouchInteraction's
+   *  own "whatever happened stays applied" precedent for plain drags). */
+  private freezeActiveTouchPointPick(): void {
     if (this.touchPointPickPointerId === null) return;
-    this.activeTouches.delete(this.touchPointPickPointerId);
-    this.cancelTouchPointPickPreview();
-    this.requestRedraw();
+    if (this.touchCursorScreenPos !== null) {
+      this.pendingCommandCandidate = this.viewport.screenToWorld(this.touchCursorScreenPos);
+    }
+    this.touchPointPickPointerId = null;
+  }
+
+  /** Call whenever a point/value commits some way OTHER than this touch
+   *  layer's own aim/confirm flow -- currently: typing a value into the
+   *  command bar (physical keyboard or the popup numpad) and submitting it,
+   *  whether that lands mid-aim (a finger still down) or with a candidate
+   *  already frozen pending confirmation. Either way, fully clears this
+   *  touch layer's point-pick state so it doesn't linger visually (a stale
+   *  frozen ghost) or double-fire (a stray extra commit) the next time a
+   *  finger touches the canvas. Safe to call unconditionally (main.ts does,
+   *  on every submitted value): a no-op whenever none of this state is set,
+   *  e.g. every desktop mouse/keyboard submission. */
+  discardInFlightTouchPointPick(): void {
+    if (this.touchPointPickPointerId !== null) this.activeTouches.delete(this.touchPointPickPointerId);
+    if (this.pendingCommandTouch !== null) this.activeTouches.delete(this.pendingCommandTouch.pointerId);
+    const hadSomething =
+      this.touchPointPickPointerId !== null || this.pendingCommandTouch !== null || this.pendingCommandCandidate !== null;
+    this.touchPointPickPointerId = null;
+    this.pendingCommandTouch = null;
+    this.pendingCommandCandidate = null;
+    this.touchFingerScreenPos = null;
+    this.touchCursorScreenPos = null;
+    if (hadSomething) this.requestRedraw();
   }
 
   /** Cleanly abandons an in-progress single-touch drag/box-select the moment
@@ -731,32 +808,40 @@ export class CanvasView {
 
   /** The touch point-pick preview cursor itself (see
    *  handleTouchPointerDown's doc comment): a crosshair at the OFFSET
-   *  position -- not the fingertip -- joined back to the real contact point
-   *  by a faint dashed line, so it's unambiguous which glyph is the actual
-   *  pick location while the fingertip itself covers that spot. Drawn last,
-   *  on top of the ordinary snap marker (which lands at essentially the same
-   *  spot whenever a snap is active), so it's never hidden by anything. */
+   *  position -- not the fingertip -- so it's unambiguous which glyph is the
+   *  actual pick location while the fingertip itself covers that spot.
+   *  Drawn last, on top of the ordinary snap marker (which lands at
+   *  essentially the same spot whenever a snap is active), so it's never
+   *  hidden by anything. Two visually distinct states: while a finger is
+   *  actively aiming it (touchPointPickPointerId set), a hollow crosshair
+   *  plus a dashed connector back to the real fingertip; once frozen
+   *  awaiting confirmation (the finger has lifted, nothing connects to it
+   *  any more), a filled center dot instead -- a "tap or type to confirm"
+   *  affordance that needs no separate text/UI chrome. */
   private drawTouchOffsetCursor(): void {
-    if (this.touchCursorScreenPos === null || this.touchFingerScreenPos === null) return;
+    if (this.touchCursorScreenPos === null) return;
     const { x, y } = this.touchCursorScreenPos;
-    const finger = this.touchFingerScreenPos;
+    const isActive = this.touchPointPickPointerId !== null;
     const ctx = this.ctx;
 
     ctx.save();
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(finger.x, finger.y);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (isActive && this.touchFingerScreenPos !== null) {
+      const finger = this.touchFingerScreenPos;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(finger.x, finger.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    ctx.fillStyle = "rgba(80, 160, 255, 0.25)";
-    ctx.beginPath();
-    ctx.arc(finger.x, finger.y, 14, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = "rgba(80, 160, 255, 0.25)";
+      ctx.beginPath();
+      ctx.arc(finger.x, finger.y, 14, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const half = 11;
     ctx.strokeStyle = "#50a0ff";
@@ -769,6 +854,10 @@ export class CanvasView {
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(x, y, half * 0.55, 0, Math.PI * 2);
+    if (!isActive) {
+      ctx.fillStyle = "#50a0ff";
+      ctx.fill();
+    }
     ctx.stroke();
 
     ctx.restore();
