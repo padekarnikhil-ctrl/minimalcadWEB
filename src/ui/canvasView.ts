@@ -224,6 +224,18 @@ export class CanvasView {
     }
 
     if (e.pointerType === "touch") {
+      // Same focus-steal prevention as the commandActive check below, for
+      // the same reason (see its own comment) -- without this, touching the
+      // canvas to point-pick mid-command stole focus back from the command
+      // bar's own input field (set by enableInput()/enableDualInput()) the
+      // moment you touched down, since an unprevented pointerdown's default
+      // "focus the touched element" step runs after every listener returns
+      // regardless of pointer type. That silently broke typing a dynamic-
+      // input value (keyboard OR the popup numpad) into a still-live command
+      // right after a touch-driven point pick.
+      if (this.engine.commandManager.currentCommand !== null) {
+        e.preventDefault();
+      }
       this.handleTouchPointerDown(e);
       return;
     }
