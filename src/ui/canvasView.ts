@@ -146,7 +146,15 @@ export class CanvasView {
 
     const tolerance = this.engine.pickTolerance();
     const gripHit = gripAt(this.engine.selection, worldPos, tolerance);
-    if (gripHit !== null) {
+    const hit = entityAt(this.engine.document.getEntities(), worldPos, tolerance);
+
+    // A grip only wins when it belongs to the entity the click actually lands
+    // on (or nothing else is there) -- e.g. the shared corner of two
+    // connected lines, where the OTHER line's endpoint grip sits at the
+    // exact same point as the selected line's own grip. Without this, that
+    // click always re-grabs the already-selected line's grip and clicking
+    // the neighboring line to select it becomes impossible from there.
+    if (gripHit !== null && (hit === null || hit === gripHit.entity)) {
       const commandName = GRIP_COMMAND_NAMES[gripHit.kind];
       this.engine.commandManager.startCommand(commandName);
       const grip = this.engine.commandManager.currentCommand as GripCommand | null;
@@ -155,7 +163,6 @@ export class CanvasView {
       return;
     }
 
-    const hit = entityAt(this.engine.document.getEntities(), worldPos, tolerance);
     if (hit !== null) {
       const shiftHeld = e.shiftKey;
       this.applySelectionPick(hit, shiftHeld);
