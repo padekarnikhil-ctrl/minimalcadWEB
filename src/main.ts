@@ -74,3 +74,34 @@ if (homeBtn !== null) {
   homeBtn.addEventListener("mousedown", (e) => e.preventDefault());
   homeBtn.addEventListener("click", () => engine.zoomExtents());
 }
+
+// Touch-only ESC/Enter/Undo/Redo overlay (shown/hidden purely by CSS, see
+// style.css's #mobile-controls rule -- nothing here decides visibility).
+// ESC/Enter don't reimplement cancellation/confirmation: dispatching a real
+// 'keydown' at whichever element currently holds focus runs through the
+// EXACT SAME listeners a physical key press would -- canvasView.ts's own
+// onKeyDown when the canvas has focus (mid-command point-picking), or
+// commandBar.ts's field handler when its input has focus (typed/dual-value
+// entry) -- so there is nothing new to keep in sync with either. Neither
+// button ever calls .focus() on anything, so tapping them never pops up the
+// on-screen keyboard.
+function dispatchSyntheticKey(key: string): void {
+  const target = document.activeElement ?? document.body;
+  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+}
+
+const mobileControls: [string, () => void][] = [
+  ["mobile-undo", () => engine.undoAction()],
+  ["mobile-redo", () => engine.redoAction()],
+  ["mobile-escape", () => dispatchSyntheticKey("Escape")],
+  ["mobile-enter", () => dispatchSyntheticKey("Enter")],
+];
+for (const [id, action] of mobileControls) {
+  const btn = document.getElementById(id);
+  if (btn === null) continue;
+  // Same focus-steal prevention as toolbar/home buttons -- critical here
+  // specifically so tapping ESC/Enter doesn't itself move focus away from
+  // whatever element dispatchSyntheticKey above needs to target.
+  btn.addEventListener("mousedown", (e) => e.preventDefault());
+  btn.addEventListener("click", action);
+}

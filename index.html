@@ -11,6 +11,14 @@
       <div id="canvas-wrapper">
         <canvas id="cad-canvas" tabindex="0"></canvas>
         <button id="home-btn" title="Home view (fit drawing)">⌂</button>
+        <!-- Touch-only overlay (shown via CSS, see style.css) -- phones/tablets
+             have no physical Escape key. Wired in main.ts. -->
+        <div id="mobile-controls">
+          <button id="mobile-undo" title="Undo">↶</button>
+          <button id="mobile-redo" title="Redo">↷</button>
+          <button id="mobile-escape" title="Cancel (Esc)">✕</button>
+          <button id="mobile-enter" title="Confirm (Enter)">✓</button>
+        </div>
       </div>
       <div id="command-bar"></div>
     </div>

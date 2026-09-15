@@ -66,6 +66,12 @@ body {
   cursor: crosshair;
   outline: none;
   background: #1e1e1e;
+  /* Hands ALL gesture recognition (pan/zoom/draw) to canvasView.ts's own
+     Pointer Event handling -- without this, the browser's own scroll/pinch-
+     zoom/double-tap-zoom on touch devices fights with (and usually wins
+     over) that handling, especially for pinch-zoom on iOS Safari, which a
+     plain touch-handler preventDefault() can't reliably suppress on its own. */
+  touch-action: none;
 }
 
 /* Matches graphics/canvas_chrome.py's Home button exactly: top-right corner,
@@ -89,6 +95,56 @@ body {
 #home-btn:hover {
   background: rgba(60, 60, 60, 0.86);
   border-color: #888888;
+}
+
+/* Touch-only ESC/Enter/Undo/Redo overlay -- phones/tablets have no physical
+   Escape key. Shown purely via `(any-pointer: coarse)` ("is some touch-
+   capable pointer available", not "is the primary one" -- covers touchscreen
+   laptops that also have a mouse/trackpad), so it never appears for a
+   mouse-only desktop user and needs no JS-side device/width detection at
+   all (see ui/canvasView.ts's own header comment on preferring
+   e.pointerType for the same reason). Bottom-center placement keeps it
+   thumb-reachable without covering the drawing area above it. */
+#mobile-controls {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  gap: 8px;
+}
+
+@media (any-pointer: coarse) {
+  #mobile-controls {
+    display: flex;
+  }
+}
+
+#mobile-controls button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 18px;
+  font-weight: bold;
+  color: #dddddd;
+  background: rgba(40, 40, 40, 0.85);
+  border: 1px solid #555555;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  touch-action: manipulation; /* fast tap on these controls themselves, no double-tap-zoom delay */
+}
+
+#mobile-controls button:active {
+  background: rgba(60, 60, 60, 0.9);
+}
+
+#mobile-escape {
+  color: #ff8080;
+}
+
+#mobile-enter {
+  color: #80ff80;
 }
 
 #command-bar {

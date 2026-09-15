@@ -86,6 +86,14 @@ export class Viewport {
   /** Zoom by one wheel notch, keeping `cursorScreenPt`'s world point fixed under the cursor. */
   zoomAtCursor(cursorScreenPt: Point, wheelDeltaY: number): void {
     const factor = wheelDeltaY < 0 ? WHEEL_ZOOM_FACTOR : 1.0 / WHEEL_ZOOM_FACTOR;
+    this.zoomByFactor(cursorScreenPt, factor);
+  }
+
+  /** Same fixed-point zoom math as zoomAtCursor, but by an arbitrary
+   *  multiplicative `factor` instead of one fixed wheel-notch step -- shared
+   *  with touch pinch-to-zoom, which derives its own continuous factor from
+   *  the ratio of the two touch points' current vs. previous distance. */
+  zoomByFactor(cursorScreenPt: Point, factor: number): void {
     const worldBefore = this.screenToWorld(cursorScreenPt);
     const newZoom = this.zoom * factor;
 

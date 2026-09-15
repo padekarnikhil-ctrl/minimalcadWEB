@@ -4,21 +4,36 @@
  *
  * Owns the <canvas> element: HiDPI-correct backing-store sizing, the
  * pan/zoom/grid/entity/selection/command-preview render pass, and
- * dispatches mouse/keyboard events (converted to world coordinates) into
+ * dispatches pointer/keyboard events (converted to world coordinates) into
  * the Engine -- the direct analogue of graphics/canvas.py's
  * mousePressEvent/mouseMoveEvent/wheelEvent/keyPressEvent.
  *
- * HiDPI note: viewport.zoom/panOffset and every mouse-event coordinate stay
+ * HiDPI note: viewport.zoom/panOffset and every pointer-event coordinate stay
  * in CSS-pixel space throughout. devicePixelRatio only ever enters the
  * picture via the one-time backing-store resize and the per-frame
  * ctx.scale(dpr, dpr) below -- mixing CSS-pixel and device-pixel coordinates
  * anywhere else would silently break picking/pan/zoom.
+ *
+ * Touch/pointer note: this listens for Pointer Events (not separate mouse/
+ * touch listeners), which mouse, pen, and touch input all dispatch alike --
+ * `e.pointerType` distinguishes them where behavior actually needs to
+ * differ. Mouse and pen input run through EXACTLY the same
+ * runPointerDown/runPointerMove/runPointerUp core as before this was pointer-
+ * based (unchanged behavior, just re-entered via a differently-named event);
+ * touch gets its own gesture layer on top of that same core -- see
+ * handleTouchPointerDown's own doc comment for why single-finger taps/drags
+ * defer committing to that core by a small movement threshold (so a second
+ * finger arriving to start a pinch doesn't first fire a spurious point-pick/
+ * click), while two fingers drive pan+zoom directly and never reach it at
+ * all. `touch-action: none` on the canvas (style.css) hands ALL gesture
+ * recognition to this code -- the browser performs no scroll/pinch-zoom of
+ * its own on this element.
  */
 
 import { computeGridLines } from "../engine/grid";
 import { entityAt, gripAt } from "../engine/picking";
 import type { Viewport } from "../engine/viewport";
-import type { Bounds, Point } from "../core/types";
+import { pointDistance, type Bounds, type Point } from "../core/types";
 import type { Entity } from "../entities/entity";
 import type { Engine } from "../engine/engine";
 import type { GripCommand } from "../commands/types";
@@ -31,12 +46,34 @@ const COLOR_CROSSING_SELECT = "rgba(90, 210, 110, 1)";
 const COLOR_SNAP_MARKER = "#ffff00";
 const SNAP_MARKER_SCREEN_SIZE = 9.0;
 
+// Screen-pixel movement a pending single-touch point must exceed before it
+// commits to a drag/select (rather than staying eligible to become a tap on
+// release, or being discarded entirely if a second finger joins) -- matches
+// Viewport's own default pick-tolerance pixel radius so "did I actually mean
+// to move" reads the same threshold picking itself already uses.
+const TOUCH_DRAG_THRESHOLD_PX = 6.0;
+
 const GRIP_COMMAND_NAMES: Record<"line_extend" | "move_grip" | "circle_resize" | "dimension_grip", string> = {
   line_extend: "gripextend",
   move_grip: "movegrip",
   circle_resize: "gripresize",
   dimension_grip: "dimensiongrip",
 };
+
+interface PendingTouch {
+  pointerId: number;
+  screenPos: Point;
+  worldPos: Point;
+}
+
+interface TwoFingerGesture {
+  midpoint: Point;
+  distance: number;
+}
+
+function midpointOf(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
 
 export class CanvasView {
   readonly canvas: HTMLCanvasElement;
@@ -62,6 +99,11 @@ export class CanvasView {
   private dragLastPos: Point | null = null;
   private dragMoved = false;
 
+  // Touch gesture state -- see handleTouchPointerDown's doc comment.
+  private activeTouches = new Map<number, Point>();
+  private pendingTouch: PendingTouch | null = null;
+  private touchGesture: TwoFingerGesture | null = null;
+
   constructor(canvas: HTMLCanvasElement, viewport: Viewport, engine: Engine) {
     this.canvas = canvas;
     this.viewport = viewport;
@@ -82,10 +124,16 @@ export class CanvasView {
     // shorter) box, throwing off every click's mapping back to world space.
     new ResizeObserver(() => this.resizeToDisplaySize()).observe(this.canvas);
 
+    // Pointer Events, not separate mouse/touch listeners: mouse, pen, and
+    // touch input all dispatch these alike (see this file's own header
+    // comment), and `touch-action: none` on the canvas (style.css) tells the
+    // browser to leave ALL gesture recognition here rather than performing
+    // its own scroll/pinch-zoom on this element.
     this.canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
-    this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e));
-    this.canvas.addEventListener("mousemove", (e) => this.onMouseMove(e));
-    this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    this.canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+    this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
+    this.canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
+    this.canvas.addEventListener("pointercancel", (e) => this.onPointerCancel(e));
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.canvas.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.canvas.addEventListener("mouseleave", () => {
@@ -120,7 +168,7 @@ export class CanvasView {
     this.requestRedraw();
   }
 
-  private eventToScreenPoint(e: MouseEvent): Point {
+  private eventToScreenPoint(e: PointerEvent | MouseEvent): Point {
     const rect = this.canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
@@ -131,7 +179,30 @@ export class CanvasView {
     this.requestRedraw();
   }
 
-  private onMouseDown(e: MouseEvent): void {
+  // --- Pointer entry points: mouse/pen run the shared core directly
+  // (unchanged behavior from before this was pointer-based); touch gets its
+  // own gesture layer first -- see handleTouchPointerDown's doc comment. ---
+
+  private onPointerDown(e: PointerEvent): void {
+    // Keeps a drag/pan/pinch tracking correctly even if the pointer moves
+    // outside the canvas mid-gesture. Deliberately swallowed on failure --
+    // setPointerCapture can throw (e.g. NotFoundError if the browser no
+    // longer considers this pointer id "active" by the time this runs) in
+    // edge cases that shouldn't take down the rest of pointerdown handling
+    // with it; capture is a robustness nicety here, not a correctness
+    // requirement, since every handler below still works from the events
+    // themselves regardless of whether capture actually took.
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignored -- see comment above */
+    }
+
+    if (e.pointerType === "touch") {
+      this.handleTouchPointerDown(e);
+      return;
+    }
+
     if (e.button === 1) {
       this.isPanning = true;
       this.lastPanScreenPos = this.eventToScreenPoint(e);
@@ -140,28 +211,92 @@ export class CanvasView {
       return;
     }
 
-    const worldPos = this.viewport.screenToWorld(this.eventToScreenPoint(e));
-    const commandActive = this.engine.commandManager.currentCommand !== null;
-
-    if (commandActive) {
+    if (this.engine.commandManager.currentCommand !== null) {
       // Without this, a click that makes the active command call
       // commandBar.enableInput() (e.g. Leader's landing-point pick, or
       // Rectangle's corner pick before its width/height prompt) gets its
       // focus silently stolen right back: per spec, an unprevented
-      // mousedown's default "focus the clicked element" step runs AFTER
-      // every mousedown listener returns, so it fires after -- and
-      // overrides -- enableInput()'s own focus() call below, leaving the
-      // canvas focused instead of the input field. The next keystroke then
-      // goes nowhere a command is reading from.
+      // pointerdown's default "focus the clicked element" step runs AFTER
+      // every pointerdown listener returns, so it fires after -- and
+      // overrides -- enableInput()'s own focus() call inside runPointerDown.
+      // The next keystroke then goes nowhere a command is reading from.
       e.preventDefault();
-      if (e.button === 0) this.engine.commandManager.leftClick(worldPos);
-      else if (e.button === 2) this.engine.commandManager.rightClick(worldPos);
+    }
+
+    const worldPos = this.viewport.screenToWorld(this.eventToScreenPoint(e));
+    this.runPointerDown(worldPos, e.button, e.shiftKey);
+  }
+
+  private onPointerMove(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      this.handleTouchPointerMove(e);
+      return;
+    }
+
+    if (this.isPanning) {
+      const current = this.eventToScreenPoint(e);
+      const delta = { x: current.x - this.lastPanScreenPos.x, y: current.y - this.lastPanScreenPos.y };
+      this.viewport.pan(delta);
+      this.lastPanScreenPos = current;
+      this.requestRedraw();
+      return;
+    }
+
+    this.runPointerMove(this.viewport.screenToWorld(this.eventToScreenPoint(e)));
+  }
+
+  private onPointerUp(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      this.handleTouchPointerEnd(e);
+      return;
+    }
+
+    if (e.button === 1) {
+      this.isPanning = false;
+      this.canvas.style.cursor = "crosshair";
+      return;
+    }
+
+    if (e.button !== 0) return;
+    this.runPointerUp();
+  }
+
+  private onPointerCancel(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      this.handleTouchPointerEnd(e);
+      return;
+    }
+    // Defensive cleanup for mouse/pen -- the OS interrupted the gesture
+    // (e.g. a stylus lifted out of hover range mid-drag); mirrors
+    // mouseleave's own "abandon whatever was in progress" cleanup.
+    this.isPanning = false;
+    this.canvas.style.cursor = "crosshair";
+    this.dragEntities = null;
+    this.dragLastPos = null;
+    this.dragMoved = false;
+    this.selectOrigin = null;
+    this.selectCurrent = null;
+    this.selectActive = false;
+    this.requestRedraw();
+  }
+
+  // --- Shared pointer core: identical to this file's own pre-touch mouse
+  // handling, just re-entered by name instead of inline in onPointerDown/
+  // Move/Up. Mouse/pen call this directly; touch calls it once a gesture
+  // actually commits (a tap on release, or a drag past the move threshold). ---
+
+  private runPointerDown(worldPos: Point, button: number, shiftHeld: boolean): void {
+    const commandActive = this.engine.commandManager.currentCommand !== null;
+
+    if (commandActive) {
+      if (button === 0) this.engine.commandManager.leftClick(worldPos);
+      else if (button === 2) this.engine.commandManager.rightClick(worldPos);
       this.engine.commandBar.enableInput();
       this.requestRedraw();
       return;
     }
 
-    if (e.button !== 0) return; // no command active: only left-click drives selection/grips
+    if (button !== 0) return; // no command active: only the primary button/touch drives selection/grips
 
     const tolerance = this.engine.pickTolerance();
     const gripHit = gripAt(this.engine.selection, worldPos, tolerance);
@@ -183,7 +318,6 @@ export class CanvasView {
     }
 
     if (hit !== null) {
-      const shiftHeld = e.shiftKey;
       this.applySelectionPick(hit, shiftHeld);
       if (!shiftHeld) {
         this.dragEntities = this.engine.selection.getEntities();
@@ -194,7 +328,7 @@ export class CanvasView {
       this.selectOrigin = worldPos;
       this.selectCurrent = worldPos;
       this.selectActive = false;
-      this.selectAdditive = e.shiftKey;
+      this.selectAdditive = shiftHeld;
     }
 
     this.requestRedraw();
@@ -213,18 +347,7 @@ export class CanvasView {
     }
   }
 
-  private onMouseMove(e: MouseEvent): void {
-    if (this.isPanning) {
-      const current = this.eventToScreenPoint(e);
-      const delta = { x: current.x - this.lastPanScreenPos.x, y: current.y - this.lastPanScreenPos.y };
-      this.viewport.pan(delta);
-      this.lastPanScreenPos = current;
-      this.requestRedraw();
-      return;
-    }
-
-    const worldPos = this.viewport.screenToWorld(this.eventToScreenPoint(e));
-
+  private runPointerMove(worldPos: Point): void {
     if (this.dragEntities !== null && this.dragLastPos !== null) {
       const delta = { x: worldPos.x - this.dragLastPos.x, y: worldPos.y - this.dragLastPos.y };
       if (!this.dragMoved) {
@@ -252,15 +375,7 @@ export class CanvasView {
     this.requestRedraw();
   }
 
-  private onMouseUp(e: MouseEvent): void {
-    if (e.button === 1) {
-      this.isPanning = false;
-      this.canvas.style.cursor = "crosshair";
-      return;
-    }
-
-    if (e.button !== 0) return;
-
+  private runPointerUp(): void {
     if (this.dragEntities !== null) {
       this.dragEntities = null;
       this.dragLastPos = null;
@@ -279,6 +394,116 @@ export class CanvasView {
       this.selectActive = false;
       this.requestRedraw();
     }
+  }
+
+  // --- Touch gesture layer ---
+  //
+  // One finger: deferred tap/drag. A touch's "down" doesn't immediately call
+  // runPointerDown() the way mouse/pen does -- it's held as `pendingTouch`
+  // until EITHER it moves past TOUCH_DRAG_THRESHOLD_PX (commits to a drag,
+  // replaying runPointerDown at the ORIGINAL touch point so the drag starts
+  // from where the finger actually landed, then immediately feeding in the
+  // current position so it continues with no visible jump) OR it lifts
+  // first (a tap: runPointerDown+runPointerUp back to back, exactly like a
+  // quick mouse click) OR a second finger arrives, in which case it's
+  // discarded outright -- nothing was ever committed, so there's nothing to
+  // undo. Without this deferral, the ordinary two-finger pinch gesture's
+  // first finger would fire a spurious point-pick/selection click every time
+  // before the second finger's pointerdown even arrives.
+  //
+  // Two fingers: pan by the midpoint's own movement and zoom (pinch) around
+  // that same midpoint, every move -- never reaches runPointerDown/Move/Up
+  // at all, so it can never interfere with an active command. Dropping back
+  // to fewer than 2 fingers simply ends the gesture; it does not resume
+  // single-touch tracking with whichever finger remains (the same
+  // conservative choice most touch drawing/map apps make).
+
+  private handleTouchPointerDown(e: PointerEvent): void {
+    const screenPos = this.eventToScreenPoint(e);
+    this.activeTouches.set(e.pointerId, screenPos);
+
+    if (this.activeTouches.size === 1) {
+      this.pendingTouch = { pointerId: e.pointerId, screenPos, worldPos: this.viewport.screenToWorld(screenPos) };
+      return;
+    }
+
+    if (this.activeTouches.size === 2) {
+      this.pendingTouch = null;
+      this.abortSingleTouchInteraction();
+      const [a, b] = [...this.activeTouches.values()] as [Point, Point];
+      this.touchGesture = { midpoint: midpointOf(a, b), distance: pointDistance(a, b) };
+      this.requestRedraw();
+    }
+    // 3rd+ finger: ignored -- an existing 2-finger gesture, if any, keeps going untouched.
+  }
+
+  private handleTouchPointerMove(e: PointerEvent): void {
+    if (!this.activeTouches.has(e.pointerId)) return;
+    this.activeTouches.set(e.pointerId, this.eventToScreenPoint(e));
+
+    if (this.touchGesture !== null) {
+      const pts = [...this.activeTouches.values()];
+      if (pts.length < 2) return; // ended via pointerup below; ignore any late move for the survivor
+      const [a, b] = pts as [Point, Point];
+      const newMid = midpointOf(a, b);
+      const newDist = pointDistance(a, b);
+
+      this.viewport.pan({ x: newMid.x - this.touchGesture.midpoint.x, y: newMid.y - this.touchGesture.midpoint.y });
+      if (this.touchGesture.distance > 1e-6) {
+        this.viewport.zoomByFactor(newMid, newDist / this.touchGesture.distance);
+      }
+      this.touchGesture = { midpoint: newMid, distance: newDist };
+      this.requestRedraw();
+      return;
+    }
+
+    if (this.pendingTouch !== null && this.pendingTouch.pointerId === e.pointerId) {
+      const currentScreen = this.eventToScreenPoint(e);
+      if (pointDistance(currentScreen, this.pendingTouch.screenPos) < TOUCH_DRAG_THRESHOLD_PX) return;
+
+      const { worldPos } = this.pendingTouch;
+      this.pendingTouch = null;
+      this.runPointerDown(worldPos, 0, false);
+      this.runPointerMove(this.viewport.screenToWorld(currentScreen));
+      return;
+    }
+
+    // An already-committed single-touch drag/select/command-point-tracking.
+    this.runPointerMove(this.viewport.screenToWorld(this.eventToScreenPoint(e)));
+  }
+
+  private handleTouchPointerEnd(e: PointerEvent): void {
+    const wasTracked = this.activeTouches.delete(e.pointerId);
+    if (!wasTracked) return;
+
+    if (this.touchGesture !== null) {
+      if (this.activeTouches.size < 2) this.touchGesture = null;
+      return;
+    }
+
+    if (this.pendingTouch !== null && this.pendingTouch.pointerId === e.pointerId) {
+      const { worldPos } = this.pendingTouch;
+      this.pendingTouch = null;
+      this.runPointerDown(worldPos, 0, false);
+      this.runPointerUp();
+      return;
+    }
+
+    this.runPointerUp();
+  }
+
+  /** Cleanly abandons an in-progress single-touch drag/box-select the moment
+   *  a second finger arrives to start a pinch -- e.g. dragging an entity
+   *  with one finger, then accidentally touching a second finger down.
+   *  Whatever movement already happened stays applied (same as releasing
+   *  the finger right there); this doesn't attempt to also undo it. */
+  private abortSingleTouchInteraction(): void {
+    this.dragEntities = null;
+    this.dragLastPos = null;
+    this.dragMoved = false;
+    this.selectOrigin = null;
+    this.selectCurrent = null;
+    this.selectActive = false;
   }
 
   private finishBoxSelect(): void {
