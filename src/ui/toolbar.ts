@@ -12,6 +12,7 @@ import { COMMAND_REGISTRY } from "../commands/registry";
 import type { Engine } from "../engine/engine";
 import { saveDocumentToFile, pickAndReadDocumentFile, exportDxfToFile, pickAndReadDxfFile } from "../io/saveLoad";
 import { showToast } from "./toast";
+import { initCloudUi, clearCurrentCloudDrawing } from "./cloudPanel";
 
 const DISPLAY_NAMES: Record<string, string> = {
   line: "Line",
@@ -81,6 +82,7 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       const parseResult = engine.document.restoreFromDict(result.snapshot);
       engine.undo.clear();
       engine.zoomExtents();
+      clearCurrentCloudDrawing();
       if (parseResult.skippedCount > 0) {
         showToast(`${parseResult.skippedCount} unsupported entity type(s) were skipped.`);
       }
@@ -103,12 +105,15 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       for (const entity of result.entities) engine.document.addEntity(entity);
       engine.undo.clear();
       engine.zoomExtents();
+      clearCurrentCloudDrawing();
       requestRedraw();
       if (result.warnings.length > 0) {
         showToast(result.warnings.join(" — "), 8000);
       }
     });
   });
+
+  initCloudUi(root, engine, requestRedraw);
 }
 
 function addUtilityButton(root: HTMLElement, label: string, onClick: () => void): void {

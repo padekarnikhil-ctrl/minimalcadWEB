@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDocumentJson, serializeDocument } from "./fileFormat";
+import { parseDocumentJson, serializeDocument, validateDocumentSnapshot } from "./fileFormat";
 import { Document } from "../core/document";
 import { Line } from "../entities/line";
 
@@ -52,5 +52,24 @@ describe("serializeDocument", () => {
     const doc = new Document();
     const json = serializeDocument(doc);
     expect(json).toContain("\n  \"entities\"");
+  });
+});
+
+describe("validateDocumentSnapshot", () => {
+  it("validates an already-parsed object the same way parseDocumentJson validates text -- the shape "
+    + "io/cloudDrawings.ts's jsonb payloads and a local file's parsed JSON both go through", () => {
+    const raw = { entities: [{ type: "line" }], constraints: [{ x: 1 }] };
+    expect(validateDocumentSnapshot(raw)).toEqual({ ok: true, snapshot: raw });
+  });
+
+  it("rejects a non-object payload without needing a JSON.parse step first", () => {
+    expect(validateDocumentSnapshot("just a string").ok).toBe(false);
+    expect(validateDocumentSnapshot([1, 2, 3]).ok).toBe(false);
+    expect(validateDocumentSnapshot(null).ok).toBe(false);
+  });
+
+  it("defaults missing entities/constraints to empty arrays, matching parseDocumentJson", () => {
+    const result = validateDocumentSnapshot({});
+    expect(result).toEqual({ ok: true, snapshot: { entities: [], constraints: [] } });
   });
 });

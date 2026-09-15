@@ -289,3 +289,117 @@ body {
 #toast.visible {
   opacity: 1;
 }
+
+/* Cloud account/drawings panel -- a plain floating box (not a full-screen
+   modal backdrop, to stay consistent with this app's otherwise chromeless
+   dark UI), toggled via the toolbar's "Cloud" button. */
+#cloud-panel {
+  position: fixed;
+  top: 44px;
+  right: 10px;
+  width: min(360px, calc(100vw - 20px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 10px;
+  color: #d4d4d4;
+  font-size: 12px;
+  z-index: 900;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+#cloud-panel[hidden] {
+  display: none;
+}
+
+.cloud-panel-header {
+  font-weight: bold;
+  font-size: 13px;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.cloud-panel-section {
+  margin-bottom: 10px;
+}
+
+.cloud-panel-section:last-child {
+  margin-bottom: 0;
+}
+
+.cloud-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+#cloud-panel input[type="text"],
+#cloud-panel input[type="email"],
+#cloud-panel input[type="password"] {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  color: #ffffff;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  padding: 4px 6px;
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+#cloud-panel button {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
+  color: #d4d4d4;
+  background: #2d2d30;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  padding: 4px 8px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+#cloud-panel button:hover {
+  background: #3c3c3c;
+}
+
+.cloud-panel-status {
+  color: #ffcc66;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.cloud-panel-email {
+  flex: 1 1 auto;
+  color: #00ffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cloud-panel-drawing-row {
+  padding: 4px;
+  border-radius: 3px;
+}
+
+.cloud-panel-drawing-row.active {
+  background: #094771;
+}
+
+.cloud-panel-drawing-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 60px;
+}

@@ -26,6 +26,14 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # Browser-safe values only (protected by Row Level Security, see
+          # supabase/migrations/0001_drawings.sql) -- Vite inlines VITE_-
+          # prefixed vars into the built bundle at this step, so these must
+          # never be the service-role/secret key. Set both as repository
+          # secrets under Settings -> Secrets and variables -> Actions.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -1,0 +1,14 @@
+-- MinimalCAD Web
+-- supabase/migrations/0002_drawings_grants.sql
+--
+-- 0001_drawings.sql enabled Row Level Security and added policies, but RLS
+-- policies only FILTER which rows a role can see/touch -- Postgres also
+-- requires an explicit table-level GRANT before a role can attempt the
+-- operation at all. Without this, every request failed with "permission
+-- denied for table drawings" (42501) before RLS was ever evaluated.
+--
+-- Only `authenticated` gets a grant, not `anon`: this app never reads/
+-- writes drawings without a signed-in user (every RLS policy checks
+-- `owner_id = auth.uid()`, which is null for anon anyway), so anon is
+-- correctly left with no access at all.
+grant select, insert, update, delete on public.drawings to authenticated;
