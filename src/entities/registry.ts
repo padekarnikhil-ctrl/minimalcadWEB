@@ -12,6 +12,7 @@ import { Line } from "./line";
 import { Circle } from "./circle";
 import { Arc } from "./arc";
 import { Polyline } from "./polyline";
+import { Text } from "./text";
 import type { Entity } from "./entity";
 
 type EntityFromDict = (data: Record<string, unknown>) => Entity;
@@ -21,4 +22,5 @@ export const ENTITY_TYPES: Record<string, EntityFromDict> = {
   circle: (data) => Circle.fromDict(data),
   arc: (data) => Arc.fromDict(data),
   polyline: (data) => Polyline.fromDict(data),
+  text: (data) => Text.fromDict(data),
 };

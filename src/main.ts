@@ -47,6 +47,9 @@ commandBar.addEventListener("escapePressed", () => {
   engine.cancelCommand();
   view.requestRedraw();
 });
+// Drives a live typing preview (e.g. TextCommand's ghost string) -- the
+// command itself just reads commandBar.text() from its own draw().
+commandBar.addEventListener("textChanged", () => view.requestRedraw());
 commandBar.addEventListener("orthoClicked", () => {
   engine.toggleOrtho();
 });

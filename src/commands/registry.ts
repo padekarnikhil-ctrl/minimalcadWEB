@@ -21,6 +21,7 @@ import { TrimCommand } from "./trim";
 import { OffsetCommand } from "./offset";
 import { FilletCommand } from "./fillet";
 import { ChamferCommand } from "./chamfer";
+import { TextCommand } from "./text";
 import { MoveGripCommand } from "./grips/moveGrip";
 import { ExtendGripCommand } from "./grips/extendGrip";
 import { CircleResizeGripCommand } from "./grips/circleResizeGrip";
@@ -44,6 +45,7 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   offset: { factory: (engine) => new OffsetCommand(engine), aliases: ["o"] },
   fillet: { factory: (engine) => new FilletCommand(engine), aliases: ["f"] },
   chamfer: { factory: (engine) => new ChamferCommand(engine), aliases: ["cha"] },
+  text: { factory: (engine) => new TextCommand(engine), aliases: ["x"] },
   // Contextual-only: entered directly via canvasView's grip hit-test, never typed.
   movegrip: { factory: (engine) => new MoveGripCommand(engine), aliases: [] },
   gripextend: { factory: (engine) => new ExtendGripCommand(engine), aliases: [] },

@@ -27,6 +27,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   offset: "Offset",
   fillet: "Fillet",
   chamfer: "Chamfer",
+  text: "Text",
 };
 
 function displayName(name: string): string {
