@@ -35,6 +35,7 @@ import type { AuthUser } from "../lib/auth";
 import { listDrawings, fetchDrawing, createDrawing, updateDrawing, renameDrawing, deleteDrawing } from "../io/cloudDrawings";
 import type { CloudDrawingSummary } from "../io/cloudDrawings";
 import { showToast } from "./toast";
+import { drawIcon } from "./toolIcons";
 
 let currentUser: AuthUser | null = null;
 let currentDrawingId: string | null = null;
@@ -67,7 +68,12 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
   toolbarRoot.appendChild(gapEl);
 
   const btn = document.createElement("button");
-  btn.textContent = "Cloud";
+  btn.className = "icon-btn";
+  btn.title = "Cloud";
+  btn.setAttribute("aria-label", "Cloud");
+  const canvas = document.createElement("canvas");
+  drawIcon("cloud", canvas);
+  btn.appendChild(canvas);
   btn.addEventListener("mousedown", (e) => e.preventDefault());
   btn.addEventListener("click", () => {
     if (panelEl === null) return;

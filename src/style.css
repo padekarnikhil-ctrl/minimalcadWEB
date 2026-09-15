@@ -55,6 +55,23 @@ body {
   cursor: pointer;
 }
 
+/* Icon-only buttons (ui/toolIcons.ts) -- matches the desktop app's
+   icon-only toolbar buttons: a fixed square housing one procedurally-drawn
+   glyph, no visible text (the accessible name/tooltip carries the label). */
+#toolbar button.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+#toolbar button.icon-btn canvas {
+  display: block;
+  pointer-events: none; /* clicks land on the <button>, not the canvas */
+}
+
 #toolbar button:hover {
   background: #3c3c3c;
 }

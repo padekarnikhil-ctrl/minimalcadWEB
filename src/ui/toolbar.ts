@@ -2,10 +2,12 @@
  * MinimalCAD Web
  * ui/toolbar.ts
  *
- * Plain <button>-per-command toolbar, text-glyph icons (no generated icon
- * art -- that's Phase H polish per the plan), one button per registered
- * drawing/edit command plus non-command utility actions (Save/Open/Undo/
- * Redo/Zoom Extents).
+ * Icon-only toolbar (ui/toolIcons.ts's procedural glyphs, ported from the
+ * desktop app's ui/tool_icons.py), grouped Draw / Modify / Dimension in the
+ * same order as the desktop's ui/toolbar.py, followed by non-command
+ * utility actions (Undo/Redo/Zoom/Save/Open/DXF). A button's accessible
+ * name and hover tooltip carry the text label + shortcut that used to be
+ * the button's own visible text.
  */
 
 import { COMMAND_REGISTRY } from "../commands/registry";
@@ -13,6 +15,7 @@ import type { Engine } from "../engine/engine";
 import { saveDocumentToFile, pickAndReadDocumentFile, exportDxfToFile, pickAndReadDxfFile } from "../io/saveLoad";
 import { showToast } from "./toast";
 import { initCloudUi, clearCurrentCloudDrawing } from "./cloudPanel";
+import { drawIcon } from "./toolIcons";
 
 const DISPLAY_NAMES: Record<string, string> = {
   line: "Line",
@@ -37,6 +40,17 @@ const DISPLAY_NAMES: Record<string, string> = {
   leader: "Leader",
 };
 
+// Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
+// Dimension) -- restricted to commands this web port actually has;
+// entries the desktop has but this port doesn't yet (ellipse, table,
+// polararray, join, explode, linetype, constrain) are simply absent until
+// their features land, not stubbed.
+const COMMAND_GROUPS: readonly (readonly string[])[] = [
+  ["line", "arc", "rectangle", "circle", "text"],
+  ["move", "copy", "rotate", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
+  ["linear", "aligned", "angular", "diameter", "radius", "leader"],
+];
+
 function displayName(name: string): string {
   return DISPLAY_NAMES[name] ?? name[0]!.toUpperCase() + name.slice(1);
 }
@@ -44,35 +58,32 @@ function displayName(name: string): string {
 export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: () => void): void {
   root.innerHTML = "";
 
-  for (const [name, entry] of Object.entries(COMMAND_REGISTRY)) {
-    // Contextual-only commands (grip drags) have no aliases and aren't
-    // directly invocable -- they only ever start via a grip hit-test.
-    if (entry.aliases.length === 0) continue;
-    const btn = document.createElement("button");
-    const label = displayName(name);
-    btn.textContent = label;
-    btn.title = `${label} (${entry.aliases[0]!.toUpperCase()})`;
-    preventFocusSteal(btn);
-    btn.addEventListener("click", () => {
-      engine.commandManager.startCommand(name);
-      requestRedraw();
-    });
-    root.appendChild(btn);
+  for (const group of COMMAND_GROUPS) {
+    for (const name of group) {
+      const entry = COMMAND_REGISTRY[name];
+      if (entry === undefined || entry.aliases.length === 0) continue;
+      const label = displayName(name);
+      const btn = createIconButton(name, `${label} (${entry.aliases[0]!.toUpperCase()})`);
+      btn.addEventListener("click", () => {
+        engine.commandManager.startCommand(name);
+        requestRedraw();
+      });
+      root.appendChild(btn);
+    }
+    root.appendChild(gap());
   }
 
-  root.appendChild(gap());
-
-  addUtilityButton(root, "Undo", () => engine.undoAction());
-  addUtilityButton(root, "Redo", () => engine.redoAction());
+  addUtilityButton(root, "undo", "Undo", () => engine.undoAction());
+  addUtilityButton(root, "redo", "Redo", () => engine.redoAction());
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "Zoom Extents", () => engine.zoomExtents());
+  addUtilityButton(root, "zoomextents", "Zoom Extents", () => engine.zoomExtents());
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "Save", () => saveDocumentToFile(engine.document));
-  addUtilityButton(root, "Open", () => {
+  addUtilityButton(root, "save", "Save", () => saveDocumentToFile(engine.document));
+  addUtilityButton(root, "open", "Open", () => {
     void pickAndReadDocumentFile().then((result) => {
       if (result === null) return;
       if (!result.ok) {
@@ -91,8 +102,8 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "Export DXF", () => exportDxfToFile(engine.document));
-  addUtilityButton(root, "Import DXF", () => {
+  addUtilityButton(root, "exportdxf", "Export DXF", () => exportDxfToFile(engine.document));
+  addUtilityButton(root, "importdxf", "Import DXF", () => {
     void pickAndReadDxfFile().then((result) => {
       if (result === null) {
         showToast("Could not open file: not a valid DXF file");
@@ -116,10 +127,24 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
   initCloudUi(root, engine, requestRedraw);
 }
 
-function addUtilityButton(root: HTMLElement, label: string, onClick: () => void): void {
+/** Builds an icon-only <button> (ui/toolIcons.ts glyph inside, no visible
+ *  text) -- `title` doubles as both the hover tooltip and (via aria-label)
+ *  the accessible name, matching the desktop toolbar's own icon-only
+ *  buttons-with-tooltip convention. */
+function createIconButton(iconName: string, title: string): HTMLButtonElement {
   const btn = document.createElement("button");
-  btn.textContent = label;
+  btn.className = "icon-btn";
+  btn.title = title;
+  btn.setAttribute("aria-label", title);
+  const canvas = document.createElement("canvas");
+  drawIcon(iconName, canvas);
+  btn.appendChild(canvas);
   preventFocusSteal(btn);
+  return btn;
+}
+
+function addUtilityButton(root: HTMLElement, iconName: string, title: string, onClick: () => void): void {
+  const btn = createIconButton(iconName, title);
   btn.addEventListener("click", onClick);
   root.appendChild(btn);
 }
