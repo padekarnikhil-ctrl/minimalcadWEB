@@ -41,6 +41,7 @@ let currentDrawingId: string | null = null;
 let currentDrawingName = "Untitled";
 
 let panelEl: HTMLDivElement | null = null;
+let cloudButtonEl: HTMLButtonElement | null = null;
 let engineRef: Engine | null = null;
 let requestRedrawRef: (() => void) | null = null;
 
@@ -74,11 +75,29 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
     if (!panelEl.hidden) refreshAndRender();
   });
   toolbarRoot.appendChild(btn);
+  cloudButtonEl = btn;
 
   panelEl = document.createElement("div");
   panelEl.id = "cloud-panel";
   panelEl.hidden = true;
   document.body.appendChild(panelEl);
+
+  // Auto-close on any tap/click outside the panel (and outside the toggle
+  // button itself, which already has its own open/close toggle above) --
+  // on a narrow/tablet layout the toolbar can wrap enough rows that this
+  // fixed-position panel (see style.css) visually covers the Cloud button
+  // that opened it, leaving no way to close it otherwise. pointerdown
+  // (not click) matches the immediate close-on-touch-down feel of a normal
+  // dropdown/popover, and fires alongside -- never instead of -- whatever
+  // canvasView.ts's own pointer handling does with that same touch, since
+  // this listener never calls preventDefault()/stopPropagation().
+  document.addEventListener("pointerdown", (e) => {
+    if (panelEl === null || panelEl.hidden) return;
+    const target = e.target;
+    if (!(target instanceof Node)) return;
+    if (panelEl.contains(target) || cloudButtonEl?.contains(target) === true) return;
+    panelEl.hidden = true;
+  });
 
   onAuthStateChange((user) => {
     currentUser = user;
