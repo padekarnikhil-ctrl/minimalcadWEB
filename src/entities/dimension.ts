@@ -25,6 +25,10 @@ import { pointAdd, pointSub } from "../core/types";
 import type { Entity, Viewport } from "./entity";
 import { COLOR_SELECTED, COLOR_GRIP, gripScreenSize, rotatePoint } from "./style";
 import { FONT_FAMILY, measureText } from "./textMetrics";
+import { Viewport as ViewportClass } from "../engine/viewport";
+import { Line } from "./line";
+import { Arc } from "./arc";
+import { Text } from "./text";
 
 export type DimType = "linear" | "aligned" | "angular" | "diameter" | "radius" | "leader";
 
@@ -624,6 +628,44 @@ export class Dimension implements Entity {
     } else {
       this.data.text_override = text;
     }
+  }
+
+  /**
+   * Decomposes this dimension into its constituent Line/Arc/Text primitives,
+   * in this app's own Y-down world space -- used by DXF export (a Dimension
+   * has no native DXF representation, matching entities/dimension.py having
+   * no dxf_layer/dxf_color of its own either). Mirrors file_io/dxf.py's
+   * explode_entity() mock-painter approach, but simpler: this port's draw()
+   * already caches its computed world-space geometry as a side effect (for
+   * hitTest()/getBounds(), see cachedSegments/cachedRects/cachedArcs above),
+   * so explode() just runs draw() once against a no-op context + identity
+   * viewport and reads that cache back, instead of intercepting painter
+   * calls through a mock.
+   */
+  explode(): Entity[] {
+    const noop = () => {};
+    const ctx = {
+      save: noop,
+      restore: noop,
+      beginPath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      stroke: noop,
+      arc: noop,
+      fillText: noop,
+      setLineDash: noop,
+    } as unknown as CanvasRenderingContext2D;
+    const viewport = new ViewportClass(() => 1, () => 1);
+    this.draw(ctx, viewport, false);
+
+    const entities: Entity[] = [];
+    for (const { p1, p2 } of this.cachedSegments) entities.push(new Line(p1, p2));
+    for (const { center, radius, start, end } of this.cachedArcs) entities.push(new Arc(center, radius, start, end));
+    const rect = this.cachedRects[0];
+    if (rect !== undefined && this.lastText !== "") {
+      entities.push(new Text({ x: rect[0], y: rect[3] }, this.lastText, TEXT_HEIGHT));
+    }
+    return entities;
   }
 }
 

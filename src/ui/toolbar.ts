@@ -10,7 +10,7 @@
 
 import { COMMAND_REGISTRY } from "../commands/registry";
 import type { Engine } from "../engine/engine";
-import { saveDocumentToFile, pickAndReadDocumentFile } from "../io/saveLoad";
+import { saveDocumentToFile, pickAndReadDocumentFile, exportDxfToFile, pickAndReadDxfFile } from "../io/saveLoad";
 import { showToast } from "./toast";
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -83,6 +83,29 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       engine.zoomExtents();
       if (parseResult.skippedCount > 0) {
         showToast(`${parseResult.skippedCount} unsupported entity type(s) were skipped.`);
+      }
+    });
+  });
+
+  root.appendChild(gap());
+
+  addUtilityButton(root, "Export DXF", () => exportDxfToFile(engine.document));
+  addUtilityButton(root, "Import DXF", () => {
+    void pickAndReadDxfFile().then((result) => {
+      if (result === null) {
+        showToast("Could not open file: not a valid DXF file");
+        return;
+      }
+      // Matches Open's full-replace semantics (and the desktop app's own
+      // import_dxf(), which repopulates document.entities in place) rather
+      // than merging into whatever's currently on screen.
+      engine.document.clear();
+      for (const entity of result.entities) engine.document.addEntity(entity);
+      engine.undo.clear();
+      engine.zoomExtents();
+      requestRedraw();
+      if (result.warnings.length > 0) {
+        showToast(result.warnings.join(" — "), 8000);
       }
     });
   });

@@ -18,19 +18,20 @@
 import type { Document } from "../core/document";
 import { parseDocumentJson, serializeDocument } from "./fileFormat";
 import type { ParseJsonResult } from "./fileFormat";
+import { exportDxf, importDxf } from "./dxf";
+import type { ImportDxfResult } from "./dxf";
 
-function timestampedFilename(): string {
+function timestamp(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp =
+  return (
     `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-` +
-    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `minimalcad-${stamp}.jcad`;
+    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  );
 }
 
-export function saveDocumentToFile(doc: Document, filename = timestampedFilename()): void {
-  const json = serializeDocument(doc);
-  const blob = new Blob([json], { type: "application/json" });
+function downloadBlob(content: string, mimeType: string, filename: string): void {
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
 
   const anchor = document.createElement("a");
@@ -40,6 +41,16 @@ export function saveDocumentToFile(doc: Document, filename = timestampedFilename
 
   // Revoke on the next tick -- revoking synchronously can abort the download in some browsers.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export function saveDocumentToFile(doc: Document, filename = `minimalcad-${timestamp()}.jcad`): void {
+  downloadBlob(serializeDocument(doc), "application/json", filename);
+}
+
+/** Exports `doc` to a plain-text DXF file (matching the desktop app's
+ *  file_io/dxf.py output exactly) -- see io/dxf.ts for the format itself. */
+export function exportDxfToFile(doc: Document, filename = `minimalcad-${timestamp()}.dxf`): void {
+  downloadBlob(exportDxf(doc), "application/dxf", filename);
 }
 
 /** Opens the browser's file picker, reads the chosen file as JSON, and resolves
@@ -69,6 +80,32 @@ export function pickAndReadDocumentFile(): Promise<ParseJsonResult | null> {
     // a one-shot focus-return heuristic would be unreliable, so this simply leaves
     // the promise pending until a file is chosen; callers show no spinner, so an
     // abandoned picker just quietly does nothing, matching normal file-input UX.
+    input.click();
+  });
+}
+
+/** Opens the browser's file picker, reads the chosen file as raw bytes (not
+ *  text -- see io/dxf.ts's readDxfText for why: legacy DXF files aren't
+ *  always UTF-8), and resolves with the parsed entities/warnings, or null if
+ *  the user cancelled the picker or the file couldn't be parsed at all. */
+export function pickAndReadDxfFile(): Promise<ImportDxfResult | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".dxf";
+
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file === undefined) {
+        resolve(null);
+        return;
+      }
+      file
+        .arrayBuffer()
+        .then((buffer) => resolve(importDxf(buffer)))
+        .catch(() => resolve(null));
+    });
+
     input.click();
   });
 }
