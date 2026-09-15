@@ -13,6 +13,7 @@
 import { COMMAND_REGISTRY } from "../commands/registry";
 import type { Engine } from "../engine/engine";
 import { saveDocumentToFile, pickAndReadDocumentFile, exportDxfToFile, pickAndReadDxfFile } from "../io/saveLoad";
+import { parseEntities, placeBeside } from "../core/document";
 import { showToast } from "./toast";
 import { initCloudUi, clearCurrentCloudDrawing } from "./cloudPanel";
 import { drawIcon } from "./toolIcons";
@@ -44,9 +45,9 @@ const DISPLAY_NAMES: Record<string, string> = {
 
 // Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
 // Dimension) -- restricted to commands this web port actually has;
-// entries the desktop has but this port doesn't yet (ellipse, table,
-// polararray, join, explode, linetype, constrain) are simply absent until
-// their features land, not stubbed.
+// entries the desktop has but this port doesn't yet (table, join, explode,
+// linetype, constrain) are simply absent until their features land, not
+// stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
   ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
@@ -98,6 +99,36 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       clearCurrentCloudDrawing();
       if (parseResult.skippedCount > 0) {
         showToast(`${parseResult.skippedCount} unsupported entity type(s) were skipped.`);
+      }
+    });
+  });
+
+  addUtilityButton(root, "insertdrawing", "Insert Drawing (merge a .jcad file into this canvas)", () => {
+    void pickAndReadDocumentFile().then((result) => {
+      if (result === null) return;
+      if (!result.ok) {
+        showToast(`Could not import drawing: ${result.error}`);
+        return;
+      }
+      const { entities: incoming, skippedCount } = parseEntities(result.snapshot.entities);
+      if (incoming.length === 0) return;
+
+      // Unlike Open/Import DXF (which replace the document), this merges
+      // into whatever's already on screen -- offset clear of the existing
+      // content's bounds so it doesn't land on top of it, matching the
+      // desktop app's own Ctrl+A overlay-import (document.py's
+      // placeBeside()). Deliberately does NOT call clearCurrentCloudDrawing():
+      // the current drawing's identity hasn't changed, it just has more in it.
+      if (engine.document.getEntities().length > 0) {
+        placeBeside(engine.document.getBounds(), incoming);
+      }
+
+      engine.undo.push(engine.document.toDict());
+      for (const entity of incoming) engine.document.addEntity(entity);
+      engine.selection.clear();
+      engine.zoomExtents();
+      if (skippedCount > 0) {
+        showToast(`${skippedCount} unsupported entity type(s) were skipped.`);
       }
     });
   });

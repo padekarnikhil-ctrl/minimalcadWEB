@@ -300,6 +300,16 @@ function drawDocumentArrow(ctx: CanvasRenderingContext2D, downward: boolean): vo
 const drawExportDxf: Drawer = (ctx) => drawDocumentArrow(ctx, true);
 const drawImportDxf: Drawer = (ctx) => drawDocumentArrow(ctx, false);
 
+function drawInsertDrawing(ctx: CanvasRenderingContext2D): void {
+  // Two overlapping page rectangles (the current drawing + the one being
+  // merged in), plus a small "+" -- distinguishes this from Copy's plain
+  // two-overlapping-squares glyph above.
+  ctx.strokeRect(1, 6, 11, 11);
+  ctx.strokeRect(7, 2, 11, 11);
+  line(ctx, 14, 4, 14, 8);
+  line(ctx, 12, 6, 16, 6);
+}
+
 function drawCloud(ctx: CanvasRenderingContext2D): void {
   ctx.beginPath();
   ctx.arc(7, 12, 4, Math.PI * 0.5, Math.PI * 1.6);
@@ -340,6 +350,7 @@ const DRAWERS: Record<string, Drawer> = {
   open: drawOpen,
   exportdxf: drawExportDxf,
   importdxf: drawImportDxf,
+  insertdrawing: drawInsertDrawing,
   cloud: drawCloud,
 };
 

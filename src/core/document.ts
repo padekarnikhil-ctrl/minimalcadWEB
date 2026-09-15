@@ -87,6 +87,64 @@ export class Document {
   }
 }
 
+/** World-unit gap placed between a document's existing content and anything
+ *  newly merged into it beside that (Insert Drawing) -- see placeBeside(). */
+export const PLACEMENT_MARGIN = 50.0;
+
+/** Combined bounding box of a plain entity list -- shared by originAlign and
+ *  placeBeside, neither of which has a Document wrapping `entities` to call
+ *  .getBounds() on. Assumes `entities` is non-empty, matching document.py's
+ *  own bounds_of() (callers already check before merging in new content). */
+export function boundsOf(entities: Entity[]): Bounds {
+  let bounds = entities[0]!.getBounds();
+  for (const entity of entities.slice(1)) {
+    bounds = unionBounds(bounds, entity.getBounds());
+  }
+  return bounds;
+}
+
+/** Translates `entities` in place so their combined bounding box sits right
+ *  at the origin, extending into the first quadrant: left edge -> x=0, and
+ *  -- since this app's world space is Y-down with DXF export negating Y on
+ *  the way out (see io/dxf.ts's flipY) -- bottom-on-screen edge -> y=0, so
+ *  the exported Y comes out >= 0 too, not just X. No-op if already there. */
+export function originAlign(entities: Entity[]): void {
+  const [minX, , , maxY] = boundsOf(entities);
+  const dx = -minX;
+  const dy = -maxY;
+  if (dx !== 0 || dy !== 0) {
+    for (const entity of entities) entity.move(dx, dy);
+  }
+}
+
+/**
+ * Translates `entities` in place so their combined bounding box sits just to
+ * the right of `targetBounds`, bottom-aligned, with a PLACEMENT_MARGIN gap.
+ *
+ * "Bottom" here means maxY, not minY: this app's world space is Y-down (see
+ * originAlign above), so the numerically largest Y is the visually lowest
+ * point -- the one that should land on the X axis, matching how the very
+ * first import into an empty document is placed by originAlign. Aligning on
+ * minY instead would line up the *tops* of the new and existing geometry,
+ * leaving their bottoms at whatever height each entity's own size happens
+ * to put them -- fine for same-sized geometry, but visibly inconsistent for
+ * anything else.
+ *
+ * Used by Insert Drawing (merging another .jcad's entities onto the current
+ * canvas) so the newly added entities land predictably next to what's
+ * already there rather than at their own original coordinates, which could
+ * be arbitrarily far away and blow out the immediately-following zoomExtents.
+ */
+export function placeBeside(targetBounds: Bounds, entities: Entity[]): void {
+  const [, , cx1, cy1] = targetBounds;
+  const [minX, , , maxY] = boundsOf(entities);
+  const dx = cx1 - minX + PLACEMENT_MARGIN;
+  const dy = cy1 - maxY;
+  if (dx !== 0 || dy !== 0) {
+    for (const entity of entities) entity.move(dx, dy);
+  }
+}
+
 /** Type-dispatches a snapshot's entity list back into live entity instances,
  *  skipping (rather than aborting on) any unrecognized/corrupted entry --
  *  e.g. an Ellipse/Text/Table/Dimension from a real desktop-app file that
