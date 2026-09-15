@@ -222,6 +222,17 @@ function drawChamfer(ctx: CanvasRenderingContext2D): void {
   ctx.stroke();
 }
 
+function drawJoin(ctx: CanvasRenderingContext2D): void {
+  // Two separate segments with a gap, bridged by a small dot -- the
+  // opposite visual idea of trim's icon (a perpendicular cut mark).
+  const y = 10;
+  line(ctx, 2, y, 7, y);
+  line(ctx, 13, y, 18, y);
+  ctx.beginPath();
+  ctx.arc(10, y, 1.8, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
 function drawExplode(ctx: CanvasRenderingContext2D): void {
   // Three short fragments pulled apart from a common center.
   const cx = 10;
@@ -352,6 +363,7 @@ const DRAWERS: Record<string, Drawer> = {
   mirror: drawMirror,
   fillet: drawFillet,
   chamfer: drawChamfer,
+  join: drawJoin,
   explode: drawExplode,
   scale: drawScale,
   undo: drawUndo,

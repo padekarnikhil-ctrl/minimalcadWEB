@@ -58,6 +58,18 @@ export function bulgeToArc(p1: Point, p2: Point, bulge: number, opts: EntityStyl
   return new Arc(center, radius, startAngle, startAngle + phi, opts);
 }
 
+/** The bulge value for going from `arc`'s own start point to its end point
+ *  -- always positive, since this app's Arc always sweeps CCW (increasing
+ *  angle) from startAngle to endAngle by construction (see entities/arc.ts).
+ *  Exact inverse of bulgeToArc() above (for the forward/positive-bulge
+ *  case) -- used by commands/join.ts to record an Arc's curvature when
+ *  folding it into a Polyline's vertex chain. */
+export function segmentBulge(arc: Arc): number {
+  const twoPi = 2.0 * Math.PI;
+  const sweep = (((arc.endAngle - arc.startAngle) % twoPi) + twoPi) % twoPi || twoPi;
+  return Math.tan(sweep / 4.0);
+}
+
 export class Polyline implements Entity {
   vertices: Vertex[];
   closed: boolean;
