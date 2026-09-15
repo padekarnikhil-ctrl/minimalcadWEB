@@ -34,6 +34,9 @@ import { signUp, signIn, signOut, onAuthStateChange } from "../lib/auth";
 import type { AuthUser } from "../lib/auth";
 import { listDrawings, fetchDrawing, createDrawing, updateDrawing, renameDrawing, deleteDrawing } from "../io/cloudDrawings";
 import type { CloudDrawingSummary } from "../io/cloudDrawings";
+import { listParts, fetchPart, createPart, renamePart, deletePart } from "../io/cloudParts";
+import type { CloudPartSummary } from "../io/cloudParts";
+import { parseEntities, placeBeside } from "../core/document";
 import { showToast } from "./toast";
 import { drawIcon } from "./toolIcons";
 
@@ -112,15 +115,18 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
 }
 
 let cachedDrawings: CloudDrawingSummary[] = [];
+let cachedParts: CloudPartSummary[] = [];
 
 function refreshAndRender(): void {
   if (currentUser === null) {
     render();
     return;
   }
-  void listDrawings().then((result) => {
-    if (result.ok) cachedDrawings = result.value;
-    else showToast(`Could not load drawings: ${result.error}`);
+  void Promise.all([listDrawings(), listParts()]).then(([drawingsResult, partsResult]) => {
+    if (drawingsResult.ok) cachedDrawings = drawingsResult.value;
+    else showToast(`Could not load drawings: ${drawingsResult.error}`);
+    if (partsResult.ok) cachedParts = partsResult.value;
+    else showToast(`Could not load parts library: ${partsResult.error}`);
     render();
   });
 }
@@ -142,6 +148,14 @@ function render(): void {
   panelEl.appendChild(buildAccountBar(currentUser));
   panelEl.appendChild(buildSaveBar());
   panelEl.appendChild(buildDrawingsList());
+
+  const partsHeader = document.createElement("div");
+  partsHeader.className = "cloud-panel-header";
+  partsHeader.textContent = "Parts Library";
+  panelEl.appendChild(partsHeader);
+
+  panelEl.appendChild(buildSavePartBar());
+  panelEl.appendChild(buildPartsList());
 }
 
 function buildAuthForm(): HTMLElement {
@@ -371,5 +385,152 @@ function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
   });
 
   row.append(nameEl, openBtn, renameBtn, deleteBtn);
+  return row;
+}
+
+// --- Parts Library --- ported concept from the desktop app's
+// commands/save_library.py/insert_library.py, which store each part as a
+// standalone .jcad file in a filesystem folder; this port stores the same
+// Document JSON shape as rows in the `parts` table instead (see
+// io/cloudParts.ts and supabase/migrations/0003_parts.sql), since the
+// browser has no filesystem and this app supports multiple accounts.
+
+function buildSavePartBar(): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "cloud-panel-section cloud-panel-row";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Part name";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save Selection as Part";
+  saveBtn.title = "Saves the current selection, or the whole drawing if nothing is selected";
+  saveBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  saveBtn.addEventListener("click", () => {
+    if (engineRef === null) return;
+    const name = nameInput.value.trim();
+    if (name === "") {
+      showToast("Enter a name for the part first.");
+      return;
+    }
+
+    // Matches commands/save_library.py: the current selection if there is
+    // one, otherwise the whole document.
+    const selected = engineRef.selection.getEntities();
+    const source = selected.length > 0 ? selected : engineRef.document.getEntities();
+    if (source.length === 0) {
+      showToast("Nothing to save -- the drawing is empty.");
+      return;
+    }
+    const snapshot = { entities: source.map((e) => e.serialize()), constraints: [] };
+
+    void createPart(name, snapshot).then((result) => {
+      if (!result.ok) {
+        showToast(`Could not save part: ${result.error}`);
+        return;
+      }
+      nameInput.value = "";
+      showToast(`Saved "${name}" to your Parts Library.`);
+      refreshAndRender();
+    });
+  });
+
+  bar.append(nameInput, saveBtn);
+  return bar;
+}
+
+function buildPartsList(): HTMLElement {
+  const list = document.createElement("div");
+  list.className = "cloud-panel-section cloud-panel-list";
+
+  if (cachedParts.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "cloud-panel-status";
+    empty.textContent = "No saved parts yet.";
+    list.appendChild(empty);
+    return list;
+  }
+
+  for (const part of cachedParts) {
+    list.appendChild(buildPartRow(part));
+  }
+  return list;
+}
+
+function buildPartRow(part: CloudPartSummary): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "cloud-panel-row cloud-panel-drawing-row";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "cloud-panel-drawing-name";
+  nameEl.textContent = part.name;
+
+  const insertBtn = document.createElement("button");
+  insertBtn.textContent = "Insert";
+  insertBtn.title = "Merges this part into the current canvas beside the existing drawing";
+  insertBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  insertBtn.addEventListener("click", () => {
+    if (engineRef === null) return;
+    void fetchPart(part.id).then((result) => {
+      if (!result.ok) {
+        showToast(`Could not insert part: ${result.error}`);
+        return;
+      }
+      const engine = engineRef!;
+      const { entities: incoming, skippedCount } = parseEntities(result.value.snapshot.entities);
+      if (incoming.length === 0) return;
+
+      // Same placement logic as Insert Drawing (ui/toolbar.ts) -- offset
+      // clear of the existing content so a repeated Insert click (the
+      // desktop app's "comma to insert & continue" flow) drops each copy
+      // beside the last instead of stacking them on top of each other.
+      if (engine.document.getEntities().length > 0) {
+        placeBeside(engine.document.getBounds(), incoming);
+      }
+
+      engine.undo.push(engine.document.toDict());
+      for (const entity of incoming) engine.document.addEntity(entity);
+      engine.selection.clear();
+      engine.zoomExtents();
+      requestRedrawRef?.();
+      if (skippedCount > 0) {
+        showToast(`${skippedCount} unsupported entity type(s) were skipped.`);
+      }
+    });
+  });
+
+  const renameBtn = document.createElement("button");
+  renameBtn.textContent = "Rename";
+  renameBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  renameBtn.addEventListener("click", () => {
+    const nextName = window.prompt("Rename part", part.name);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    if (trimmed === "" || trimmed === part.name) return;
+    void renamePart(part.id, trimmed).then((result) => {
+      if (!result.ok) {
+        showToast(`Could not rename: ${result.error}`);
+        return;
+      }
+      refreshAndRender();
+    });
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.textContent = "Delete";
+  deleteBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  deleteBtn.addEventListener("click", () => {
+    if (!window.confirm(`Delete "${part.name}" from your Parts Library? This cannot be undone.`)) return;
+    void deletePart(part.id).then((result) => {
+      if (!result.ok) {
+        showToast(`Could not delete: ${result.error}`);
+        return;
+      }
+      refreshAndRender();
+    });
+  });
+
+  row.append(nameEl, insertBtn, renameBtn, deleteBtn);
   return row;
 }
