@@ -174,10 +174,24 @@ export class CommandBar extends EventTarget {
     return document.activeElement === this.angleField ? this.angleField : this.inputField;
   }
 
+  // Whether `field`'s current value is still the live-computed default (mouse-
+  // /finger-driven, via setLiveValue()/setLiveAngle()) rather than something
+  // the user actually typed -- same distinction fieldLocked/angleLocked
+  // already track for the physical-keyboard path. Read here instead of the
+  // field's own selectionStart/selectionEnd because those get silently reset
+  // to a collapsed caret every time setLiveValue() overwrites `.value` while
+  // the user's finger is still moving, which made the *numpad's* first tap
+  // insert at the end (append) instead of replacing the stale default --
+  // exactly backwards from a real keypress hitting a select-all'd field.
+  private isFieldLocked(field: HTMLInputElement): boolean {
+    return field === this.angleField ? this.angleLocked : this.fieldLocked;
+  }
+
   insertChar(char: string): void {
     const field = this.activeField();
-    const start = field.selectionStart ?? field.value.length;
-    const end = field.selectionEnd ?? field.value.length;
+    const locked = this.isFieldLocked(field);
+    const start = locked ? (field.selectionStart ?? field.value.length) : 0;
+    const end = locked ? (field.selectionEnd ?? field.value.length) : field.value.length;
     field.value = field.value.slice(0, start) + char + field.value.slice(end);
     const caret = start + char.length;
     field.setSelectionRange(caret, caret);
@@ -186,8 +200,9 @@ export class CommandBar extends EventTarget {
 
   backspace(): void {
     const field = this.activeField();
-    const start = field.selectionStart ?? field.value.length;
-    const end = field.selectionEnd ?? field.value.length;
+    const locked = this.isFieldLocked(field);
+    const start = locked ? (field.selectionStart ?? field.value.length) : 0;
+    const end = locked ? (field.selectionEnd ?? field.value.length) : field.value.length;
     const deleteFrom = start === end ? Math.max(0, start - 1) : start;
     field.value = field.value.slice(0, deleteFrom) + field.value.slice(end);
     field.setSelectionRange(deleteFrom, deleteFrom);

@@ -53,6 +53,18 @@ const SNAP_MARKER_SCREEN_SIZE = 9.0;
 // to move" reads the same threshold picking itself already uses.
 const TOUCH_DRAG_THRESHOLD_PX = 6.0;
 
+// How far above a finger's actual contact point the touch point-pick preview
+// cursor is drawn (see handleTouchPointerDown's doc comment) -- large enough
+// to clear a fingertip on a phone/tablet digitizer, which is considerably
+// fatter than the pen tip this app already handles fine. If the finger is
+// close enough to the canvas's top edge that raising the cursor by this much
+// would push it off-screen, the offset flips below the finger instead (see
+// offsetTouchCursor()) rather than clamping it to some fixed on-screen row,
+// which would make the cursor jump discontinuously as the finger crosses
+// that boundary.
+const TOUCH_CURSOR_OFFSET_PX = 70.0;
+const TOUCH_CURSOR_TOP_MARGIN_PX = 24.0;
+
 const GRIP_COMMAND_NAMES: Record<"line_extend" | "move_grip" | "circle_resize" | "dimension_grip", string> = {
   line_extend: "gripextend",
   move_grip: "movegrip",
@@ -103,6 +115,19 @@ export class CanvasView {
   private activeTouches = new Map<number, Point>();
   private pendingTouch: PendingTouch | null = null;
   private touchGesture: TwoFingerGesture | null = null;
+
+  // Touch point-pick preview: while a command is actively awaiting a point
+  // and a single finger drives it, the fingertip's own screen position is
+  // never used directly -- only to derive an offset preview cursor (see
+  // offsetTouchCursor()), fed live into the command's own mouseMove()/snap()
+  // exactly like a mouse hover would be, so its existing preview/snap-marker
+  // drawing already tracks it with no new drawing logic of its own needed.
+  // Nothing commits to the command until the finger lifts. touchFingerScreenPos
+  // is kept only so drawTouchOffsetCursor() can draw the connector line back
+  // to the real contact point.
+  private touchPointPickPointerId: number | null = null;
+  private touchFingerScreenPos: Point | null = null;
+  private touchCursorScreenPos: Point | null = null;
 
   constructor(canvas: HTMLCanvasElement, viewport: Viewport, engine: Engine) {
     this.canvas = canvas;
@@ -417,18 +442,33 @@ export class CanvasView {
   // to fewer than 2 fingers simply ends the gesture; it does not resume
   // single-touch tracking with whichever finger remains (the same
   // conservative choice most touch drawing/map apps make).
+  //
+  // One finger while a command is actively awaiting a point (point-picking,
+  // e.g. Line's next vertex): the fingertip's raw position is never fed to
+  // the command at all -- see beginTouchPointPickPreview()'s doc comment.
+  // This branch takes priority over the tap/drag deferral above specifically
+  // because a command's leftClick has no separate "click vs. drag" meaning
+  // the way plain selection does (a body-drag vs. a select-click on release),
+  // so there's nothing to disambiguate: every point-pick previews live and
+  // commits once, on release, wherever the preview cursor ends up.
 
   private handleTouchPointerDown(e: PointerEvent): void {
     const screenPos = this.eventToScreenPoint(e);
     this.activeTouches.set(e.pointerId, screenPos);
 
     if (this.activeTouches.size === 1) {
+      if (this.engine.commandManager.currentCommand !== null) {
+        this.touchPointPickPointerId = e.pointerId;
+        this.updateTouchPointPickPreview(screenPos);
+        return;
+      }
       this.pendingTouch = { pointerId: e.pointerId, screenPos, worldPos: this.viewport.screenToWorld(screenPos) };
       return;
     }
 
     if (this.activeTouches.size === 2) {
       this.pendingTouch = null;
+      this.cancelTouchPointPickPreview();
       this.abortSingleTouchInteraction();
       const [a, b] = [...this.activeTouches.values()] as [Point, Point];
       this.touchGesture = { midpoint: midpointOf(a, b), distance: pointDistance(a, b) };
@@ -440,6 +480,11 @@ export class CanvasView {
   private handleTouchPointerMove(e: PointerEvent): void {
     if (!this.activeTouches.has(e.pointerId)) return;
     this.activeTouches.set(e.pointerId, this.eventToScreenPoint(e));
+
+    if (this.touchPointPickPointerId === e.pointerId) {
+      this.updateTouchPointPickPreview(this.eventToScreenPoint(e));
+      return;
+    }
 
     if (this.touchGesture !== null) {
       const pts = [...this.activeTouches.values()];
@@ -476,6 +521,23 @@ export class CanvasView {
     const wasTracked = this.activeTouches.delete(e.pointerId);
     if (!wasTracked) return;
 
+    if (this.touchPointPickPointerId === e.pointerId) {
+      const cursorScreenPos = this.touchCursorScreenPos;
+      this.cancelTouchPointPickPreview();
+      // Re-checks currentCommand rather than trusting the branch that got us
+      // here: the command may have been cancelled (e.g. Escape) while this
+      // finger was still down, in which case there's nothing left to commit
+      // -- without this guard, lifting the finger would fall through
+      // runPointerDown's now-"no command active" branch and fire a stray
+      // selection pick at the abandoned preview position instead.
+      if (cursorScreenPos !== null && this.engine.commandManager.currentCommand !== null) {
+        this.runPointerDown(this.viewport.screenToWorld(cursorScreenPos), 0, false);
+        this.runPointerUp();
+      }
+      this.requestRedraw();
+      return;
+    }
+
     if (this.touchGesture !== null) {
       if (this.activeTouches.size < 2) this.touchGesture = null;
       return;
@@ -490,6 +552,28 @@ export class CanvasView {
     }
 
     this.runPointerUp();
+  }
+
+  /** Feeds the OFFSET preview position (never the raw fingertip) into the
+   *  active command's mouseMove(), so its existing live-preview/snap-marker
+   *  drawing already renders at the right place with no changes of its own. */
+  private updateTouchPointPickPreview(fingerScreenPos: Point): void {
+    this.touchFingerScreenPos = fingerScreenPos;
+    this.touchCursorScreenPos = this.offsetTouchCursor(fingerScreenPos);
+    this.engine.commandManager.mouseMove(this.viewport.screenToWorld(this.touchCursorScreenPos));
+    this.requestRedraw();
+  }
+
+  private offsetTouchCursor(fingerScreenPos: Point): Point {
+    const raised = fingerScreenPos.y - TOUCH_CURSOR_OFFSET_PX;
+    const y = raised < TOUCH_CURSOR_TOP_MARGIN_PX ? fingerScreenPos.y + TOUCH_CURSOR_OFFSET_PX : raised;
+    return { x: fingerScreenPos.x, y };
+  }
+
+  private cancelTouchPointPickPreview(): void {
+    this.touchPointPickPointerId = null;
+    this.touchFingerScreenPos = null;
+    this.touchCursorScreenPos = null;
   }
 
   /** Cleanly abandons an in-progress single-touch drag/box-select the moment
@@ -612,6 +696,52 @@ export class CanvasView {
     this.drawSelectionBox();
     this.engine.commandManager.draw(this.ctx);
     this.drawSnapMarker();
+    this.drawTouchOffsetCursor();
+
+    ctx.restore();
+  }
+
+  /** The touch point-pick preview cursor itself (see
+   *  handleTouchPointerDown's doc comment): a crosshair at the OFFSET
+   *  position -- not the fingertip -- joined back to the real contact point
+   *  by a faint dashed line, so it's unambiguous which glyph is the actual
+   *  pick location while the fingertip itself covers that spot. Drawn last,
+   *  on top of the ordinary snap marker (which lands at essentially the same
+   *  spot whenever a snap is active), so it's never hidden by anything. */
+  private drawTouchOffsetCursor(): void {
+    if (this.touchCursorScreenPos === null || this.touchFingerScreenPos === null) return;
+    const { x, y } = this.touchCursorScreenPos;
+    const finger = this.touchFingerScreenPos;
+    const ctx = this.ctx;
+
+    ctx.save();
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(finger.x, finger.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "rgba(80, 160, 255, 0.25)";
+    ctx.beginPath();
+    ctx.arc(finger.x, finger.y, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    const half = 11;
+    ctx.strokeStyle = "#50a0ff";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x - half, y);
+    ctx.lineTo(x + half, y);
+    ctx.moveTo(x, y - half);
+    ctx.lineTo(x, y + half);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, half * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
 
     ctx.restore();
   }
