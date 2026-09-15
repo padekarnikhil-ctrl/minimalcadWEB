@@ -34,6 +34,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   offset: "Offset",
   fillet: "Fillet",
   chamfer: "Chamfer",
+  explode: "Explode",
   text: "Text",
   linear: "Linear Dim",
   aligned: "Aligned Dim",
@@ -45,12 +46,11 @@ const DISPLAY_NAMES: Record<string, string> = {
 
 // Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
 // Dimension) -- restricted to commands this web port actually has;
-// entries the desktop has but this port doesn't yet (table, join, explode,
-// linetype, constrain) are simply absent until their features land, not
-// stubbed.
+// entries the desktop has but this port doesn't yet (table, join, linetype,
+// constrain) are simply absent until their features land, not stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
-  ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
+  ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "explode", "scale"],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
 ];
 

@@ -24,6 +24,7 @@ import { OffsetCommand } from "./offset";
 import { FilletCommand } from "./fillet";
 import { ChamferCommand } from "./chamfer";
 import { TextCommand } from "./text";
+import { ExplodeCommand } from "./explode";
 import { LinearDimensionCommand } from "./linearDimension";
 import { AlignedDimensionCommand } from "./alignedDimension";
 import { AngularDimensionCommand } from "./angularDimension";
@@ -55,6 +56,7 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   offset: { factory: (engine) => new OffsetCommand(engine), aliases: ["o"] },
   fillet: { factory: (engine) => new FilletCommand(engine), aliases: ["f"] },
   chamfer: { factory: (engine) => new ChamferCommand(engine), aliases: ["cha"] },
+  explode: { factory: (engine) => new ExplodeCommand(engine), aliases: ["ex"] },
   text: { factory: (engine) => new TextCommand(engine), aliases: ["x"] },
   linear: { factory: (engine) => new LinearDimensionCommand(engine), aliases: ["d", "dli"] },
   aligned: { factory: (engine) => new AlignedDimensionCommand(engine), aliases: ["dal"] },

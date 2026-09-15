@@ -222,6 +222,16 @@ function drawChamfer(ctx: CanvasRenderingContext2D): void {
   ctx.stroke();
 }
 
+function drawExplode(ctx: CanvasRenderingContext2D): void {
+  // Three short fragments pulled apart from a common center.
+  const cx = 10;
+  const cy = 10;
+  for (const ang of [200, 340, 90]) {
+    const rad = (ang * Math.PI) / 180;
+    line(ctx, cx + Math.cos(rad) * 2, cy + Math.sin(rad) * 2, cx + Math.cos(rad) * 8, cy + Math.sin(rad) * 8);
+  }
+}
+
 function drawScale(ctx: CanvasRenderingContext2D): void {
   ctx.strokeRect(2, 12, 6, 6);
   ctx.strokeRect(8, 2, 10, 10);
@@ -342,6 +352,7 @@ const DRAWERS: Record<string, Drawer> = {
   mirror: drawMirror,
   fillet: drawFillet,
   chamfer: drawChamfer,
+  explode: drawExplode,
   scale: drawScale,
   undo: drawUndo,
   redo: drawRedo,
