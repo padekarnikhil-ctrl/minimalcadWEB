@@ -21,23 +21,29 @@ body {
 #toolbar {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center; /* each wrapped row centers independently, not just the first */
   gap: 2px;
   padding: 4px 8px;
   background: #252526;
   border-bottom: 1px solid #3c3c3c;
   /* With enough commands registered, this no longer fits one row on a
      narrow/tablet-width screen -- html/body's own `overflow: hidden` means
-     there's no page-level scroll to fall back on, so without a LOCAL scroll
-     mechanism here, anything past the visible width (the dimension buttons,
-     reported directly) is simply unreachable, not just visually clipped. */
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
+     there's no page-level scroll to fall back on, so without wrapping,
+     anything past the visible width (the dimension buttons, reported
+     directly) was simply unreachable, not just visually clipped. Wraps to
+     as many rows as the content needs rather than scrolling -- a scroll
+     strip read as awkward; a second row reads as just "a slightly taller
+     toolbar". Safe now specifically because canvasView.ts's ResizeObserver
+     (added for this exact reason) re-syncs the canvas whenever the
+     toolbar's own wrapped height changes, so it can't silently distort
+     click-to-world mapping the way it used to before that fix existed. */
+  flex-shrink: 0;
 }
 
 #toolbar button {
-  flex: 0 0 auto; /* keep natural size and scroll for overflow, don't squish */
+  flex: 0 0 auto; /* keep natural size, never squish */
   font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: bold;
