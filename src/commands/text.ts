@@ -71,7 +71,7 @@ export class TextCommand extends BaseCommand {
       }
       this.state = 2;
       this.commandBar.setStatus("TEXT", "Enter Text:");
-      this.commandBar.enableInput();
+      this.commandBar.enableInput("text");
       this.engine.requestRedraw();
       return;
     }

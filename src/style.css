@@ -26,9 +26,18 @@ body {
   padding: 4px 8px;
   background: #252526;
   border-bottom: 1px solid #3c3c3c;
+  /* With enough commands registered, this no longer fits one row on a
+     narrow/tablet-width screen -- html/body's own `overflow: hidden` means
+     there's no page-level scroll to fall back on, so without a LOCAL scroll
+     mechanism here, anything past the visible width (the dimension buttons,
+     reported directly) is simply unreachable, not just visually clipped. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 #toolbar button {
+  flex: 0 0 auto; /* keep natural size and scroll for overflow, don't squish */
   font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: bold;
@@ -50,6 +59,7 @@ body {
 }
 
 #toolbar .toolbar-gap {
+  flex: 0 0 auto;
   width: 10px;
 }
 
@@ -97,30 +107,40 @@ body {
   border-color: #888888;
 }
 
-/* Touch-only ESC/Enter/Undo/Redo overlay -- phones/tablets have no physical
-   Escape key. Shown purely via `(any-pointer: coarse)` ("is some touch-
+/* Touch-only overlay (ESC/Enter/Undo/Redo/Delete/Ortho, plus a numeric
+   keypad while typing a value) -- phones/tablets have no physical Escape
+   key, and (for the keypad specifically) no easy way to type this app's own
+   dynamic-input grammar ("12.5", "3,4", "10<45") on a plain numeric OS
+   keyboard. Shown purely via `(any-pointer: coarse)` ("is some touch-
    capable pointer available", not "is the primary one" -- covers touchscreen
    laptops that also have a mouse/trackpad), so it never appears for a
    mouse-only desktop user and needs no JS-side device/width detection at
    all (see ui/canvasView.ts's own header comment on preferring
    e.pointerType for the same reason). Bottom-center placement keeps it
    thumb-reachable without covering the drawing area above it. */
-#mobile-controls {
+#mobile-touch-ui {
   display: none;
   position: absolute;
   left: 50%;
   bottom: 10px;
   transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 
 @media (any-pointer: coarse) {
-  #mobile-controls {
+  #mobile-touch-ui {
     display: flex;
   }
 }
 
-#mobile-controls button {
+#mobile-controls {
+  display: flex;
+  gap: 8px;
+}
+
+#mobile-touch-ui button {
   width: 44px;
   height: 44px;
   padding: 0;
@@ -135,7 +155,7 @@ body {
   touch-action: manipulation; /* fast tap on these controls themselves, no double-tap-zoom delay */
 }
 
-#mobile-controls button:active {
+#mobile-touch-ui button:active {
   background: rgba(60, 60, 60, 0.9);
 }
 
@@ -145,6 +165,31 @@ body {
 
 #mobile-enter {
   color: #80ff80;
+}
+
+#mobile-delete {
+  color: #ff8080;
+}
+
+#mobile-ortho {
+  color: #ffff80;
+}
+
+/* Numeric keypad -- JS-toggled (see ui/mobileNumpad.ts): only shown while
+   the command bar's own input is enabled in "numeric" mode, layered on top
+   of this being a touch device to begin with (the media query above). */
+#mobile-numpad {
+  display: none;
+  grid-template-columns: repeat(4, 44px);
+  gap: 6px;
+}
+
+#mobile-numpad.visible {
+  display: grid;
+}
+
+#mobile-numpad button {
+  font-size: 16px;
 }
 
 #command-bar {

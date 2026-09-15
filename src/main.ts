@@ -12,6 +12,7 @@ import "./style.css";
 import { CanvasView } from "./ui/canvasView";
 import { CommandBar } from "./ui/commandBar";
 import { buildToolbar } from "./ui/toolbar";
+import { buildMobileNumpad } from "./ui/mobileNumpad";
 import { Viewport } from "./engine/viewport";
 import { Engine } from "./engine/engine";
 
@@ -75,8 +76,9 @@ if (homeBtn !== null) {
   homeBtn.addEventListener("click", () => engine.zoomExtents());
 }
 
-// Touch-only ESC/Enter/Undo/Redo overlay (shown/hidden purely by CSS, see
-// style.css's #mobile-controls rule -- nothing here decides visibility).
+// Touch-only ESC/Enter/Undo/Redo/Delete/Ortho overlay, plus a numeric keypad
+// (shown/hidden purely by CSS/CommandBar events -- nothing here decides
+// visibility, see style.css's #mobile-touch-ui rule and mobileNumpad.ts).
 // ESC/Enter don't reimplement cancellation/confirmation: dispatching a real
 // 'keydown' at whichever element currently holds focus runs through the
 // EXACT SAME listeners a physical key press would -- canvasView.ts's own
@@ -93,6 +95,8 @@ function dispatchSyntheticKey(key: string): void {
 const mobileControls: [string, () => void][] = [
   ["mobile-undo", () => engine.undoAction()],
   ["mobile-redo", () => engine.redoAction()],
+  ["mobile-delete", () => engine.deleteSelected()],
+  ["mobile-ortho", () => engine.toggleOrtho()],
   ["mobile-escape", () => dispatchSyntheticKey("Escape")],
   ["mobile-enter", () => dispatchSyntheticKey("Enter")],
 ];
@@ -103,5 +107,13 @@ for (const [id, action] of mobileControls) {
   // specifically so tapping ESC/Enter doesn't itself move focus away from
   // whatever element dispatchSyntheticKey above needs to target.
   btn.addEventListener("mousedown", (e) => e.preventDefault());
-  btn.addEventListener("click", action);
+  btn.addEventListener("click", () => {
+    action();
+    view.requestRedraw();
+  });
+}
+
+const mobileNumpadEl = document.getElementById("mobile-numpad");
+if (mobileNumpadEl !== null) {
+  buildMobileNumpad(mobileNumpadEl, commandBar);
 }

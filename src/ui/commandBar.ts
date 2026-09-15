@@ -14,6 +14,16 @@
 
 const SELECT_DEFER_MS = 0; // JS equivalent of QTimer.singleShot(0, ...)
 
+/** "numeric": the field holds a coordinate/distance/angle value ("12.5",
+ *  "3,4", "10<45") -- the vast majority of enableInput() call sites. Sets
+ *  the field's `inputmode` to "none", a real HTML attribute whose entire
+ *  purpose is telling a touch device's OS "don't show your own virtual
+ *  keyboard for this field, the page provides its own input UI" (see
+ *  ui/mobileNumpad.ts) -- it has no effect at all on a physical keyboard.
+ *  "text": free-form text (TextCommand's/LeaderCommand's own "Enter Text:"
+ *  step) -- the one case that genuinely needs the system's normal keyboard. */
+export type InputMode = "numeric" | "text";
+
 export class CommandBar extends EventTarget {
   private root: HTMLElement;
   private promptLabel: HTMLSpanElement;
@@ -87,10 +97,15 @@ export class CommandBar extends EventTarget {
     }
   }
 
-  enableInput(): void {
+  enableInput(mode: InputMode = "numeric"): void {
     this.inputField.disabled = false;
+    this.inputField.inputMode = mode === "text" ? "text" : "none";
     this.inputField.focus();
     this.fieldLocked = false;
+    // Lets a touch-only numeric keypad overlay show/hide itself purely off
+    // this, with no separate device/mode tracking of its own -- see
+    // ui/mobileNumpad.ts.
+    this.dispatchEvent(new CustomEvent("inputModeChanged", { detail: { mode } }));
   }
 
   disableInput(): void {
@@ -125,11 +140,12 @@ export class CommandBar extends EventTarget {
   }
 
   enableDualInput(distanceDefault = "0.00", angleDefault = "0.0"): void {
-    this.enableInput();
+    this.enableInput(); // always numeric -- distance/angle, never free text
     this.inputField.value = distanceDefault;
 
     this.angleField.value = angleDefault;
     this.angleField.disabled = false;
+    this.angleField.inputMode = "none"; // see enableInput()'s own doc comment
     this.angleField.classList.add("visible");
     this.angleMarker.classList.add("visible");
     this.angleLocked = false;
@@ -141,6 +157,45 @@ export class CommandBar extends EventTarget {
     this.angleField.classList.remove("visible");
     this.angleMarker.classList.remove("visible");
     this.angleField.value = "";
+  }
+
+  // --- Mobile numeric keypad support (ui/mobileNumpad.ts) ---
+  //
+  // The keypad has no idea which of the two fields (distance/angle) is
+  // logically "active" -- it just knows a key was tapped. These three
+  // methods do exactly what the corresponding real keystroke would: insert/
+  // delete at the focused field's own caret position and fire the same
+  // 'input'/'keydown' events wireField()'s own listeners already handle, so
+  // live-preview dispatch, fieldLocked marking, and Tab's field-switching
+  // all keep working unchanged -- there is nothing keypad-specific to keep
+  // in sync in either of those.
+
+  private activeField(): HTMLInputElement {
+    return document.activeElement === this.angleField ? this.angleField : this.inputField;
+  }
+
+  insertChar(char: string): void {
+    const field = this.activeField();
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? field.value.length;
+    field.value = field.value.slice(0, start) + char + field.value.slice(end);
+    const caret = start + char.length;
+    field.setSelectionRange(caret, caret);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  backspace(): void {
+    const field = this.activeField();
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? field.value.length;
+    const deleteFrom = start === end ? Math.max(0, start - 1) : start;
+    field.value = field.value.slice(0, deleteFrom) + field.value.slice(end);
+    field.setSelectionRange(deleteFrom, deleteFrom);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  pressTab(): void {
+    this.activeField().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
   }
 
   setLiveValue(text: string): void {

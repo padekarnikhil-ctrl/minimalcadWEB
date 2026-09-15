@@ -97,7 +97,7 @@ export class LeaderCommand extends BaseCommand {
   private enterTextEntryStep(): void {
     this.state = 2;
     this.commandBar.setStatus("LEADER", "Enter Text:");
-    this.commandBar.enableInput();
+    this.commandBar.enableInput("text");
     this.engine.requestRedraw();
   }
 

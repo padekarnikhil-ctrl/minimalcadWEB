@@ -13,11 +13,38 @@
         <button id="home-btn" title="Home view (fit drawing)">⌂</button>
         <!-- Touch-only overlay (shown via CSS, see style.css) -- phones/tablets
              have no physical Escape key. Wired in main.ts. -->
-        <div id="mobile-controls">
-          <button id="mobile-undo" title="Undo">↶</button>
-          <button id="mobile-redo" title="Redo">↷</button>
-          <button id="mobile-escape" title="Cancel (Esc)">✕</button>
-          <button id="mobile-enter" title="Confirm (Enter)">✓</button>
+        <div id="mobile-touch-ui">
+          <div id="mobile-controls">
+            <button id="mobile-undo" title="Undo">↶</button>
+            <button id="mobile-redo" title="Redo">↷</button>
+            <button id="mobile-delete" title="Delete selection">🗑</button>
+            <button id="mobile-ortho" title="Toggle Ortho (F8)">⊥</button>
+            <button id="mobile-escape" title="Cancel (Esc)">✕</button>
+            <button id="mobile-enter" title="Confirm (Enter)">✓</button>
+          </div>
+          <!-- Shown only while a numeric/coordinate value is being entered
+               (see ui/mobileNumpad.ts) -- replaces the system's own virtual
+               keyboard for that case, since our dynamic-input grammar
+               ("12.5", "3,4", "10<45") needs `,`/`<` a plain numeric OS
+               keyboard doesn't offer. -->
+          <div id="mobile-numpad">
+            <button data-key="7">7</button>
+            <button data-key="8">8</button>
+            <button data-key="9">9</button>
+            <button data-key="Backspace" title="Backspace">⌫</button>
+            <button data-key="4">4</button>
+            <button data-key="5">5</button>
+            <button data-key="6">6</button>
+            <button data-key=",">,</button>
+            <button data-key="1">1</button>
+            <button data-key="2">2</button>
+            <button data-key="3">3</button>
+            <button data-key="&lt;">&lt;</button>
+            <button data-key="0">0</button>
+            <button data-key=".">.</button>
+            <button data-key="-">-</button>
+            <button data-key="Tab" title="Switch distance/angle">⇥</button>
+          </div>
         </div>
       </div>
       <div id="command-bar"></div>
