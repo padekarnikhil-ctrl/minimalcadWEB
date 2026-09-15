@@ -83,6 +83,12 @@ function drawCircle(ctx: CanvasRenderingContext2D): void {
   ctx.stroke();
 }
 
+function drawEllipse(ctx: CanvasRenderingContext2D): void {
+  ctx.beginPath();
+  ctx.ellipse(10, 10, 9, 6, 0, 0, 2 * Math.PI);
+  ctx.stroke();
+}
+
 const drawText: Drawer = glyph("A");
 
 // --- Dimension ---
@@ -297,6 +303,7 @@ const DRAWERS: Record<string, Drawer> = {
   arc: drawArc,
   rectangle: drawRectangle,
   circle: drawCircle,
+  ellipse: drawEllipse,
   text: drawText,
   linear: drawLinear,
   aligned: drawAligned,

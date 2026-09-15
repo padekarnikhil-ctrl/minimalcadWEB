@@ -21,6 +21,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   line: "Line",
   circle: "Circle",
   arc: "Arc",
+  ellipse: "Ellipse",
   rectangle: "Rectangle",
   move: "Move",
   copy: "Copy",
@@ -46,7 +47,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 // polararray, join, explode, linetype, constrain) are simply absent until
 // their features land, not stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
-  ["line", "arc", "rectangle", "circle", "text"],
+  ["line", "arc", "rectangle", "circle", "ellipse", "text"],
   ["move", "copy", "rotate", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
 ];

@@ -57,7 +57,7 @@
       "radius_y": 15.0,
       "rotation": 0.0,
       "start_angle": 0.0,
-      "end_angle": 360.0,
+      "end_angle": 0.0,
       "line_type": "solid",
       "dxf_layer": "0",
       "dxf_color": null,

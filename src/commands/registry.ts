@@ -11,6 +11,7 @@ import type { CommandFactory } from "./types";
 import { LineCommand } from "./line";
 import { CircleCommand } from "./circle";
 import { ArcCommand } from "./arc";
+import { EllipseCommand } from "./ellipse";
 import { RectangleCommand } from "./rectangle";
 import { MoveCommand } from "./move";
 import { CopyCommand } from "./copy";
@@ -41,6 +42,7 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   line: { factory: (engine) => new LineCommand(engine), aliases: ["l"] },
   circle: { factory: (engine) => new CircleCommand(engine), aliases: ["c"] },
   arc: { factory: (engine) => new ArcCommand(engine), aliases: ["a"] },
+  ellipse: { factory: (engine) => new EllipseCommand(engine), aliases: ["el"] },
   rectangle: { factory: (engine) => new RectangleCommand(engine), aliases: ["r", "rec"] },
   move: { factory: (engine) => new MoveCommand(engine), aliases: ["m"] },
   copy: { factory: (engine) => new CopyCommand(engine), aliases: ["co", "cp"] },

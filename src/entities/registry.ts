@@ -11,6 +11,7 @@
 import { Line } from "./line";
 import { Circle } from "./circle";
 import { Arc } from "./arc";
+import { Ellipse } from "./ellipse";
 import { Polyline } from "./polyline";
 import { Text } from "./text";
 import { Dimension } from "./dimension";
@@ -26,6 +27,7 @@ export const ENTITY_TYPES: Record<string, EntityFromDict> = {
   line: (data) => Line.fromDict(data),
   circle: (data) => Circle.fromDict(data),
   arc: (data) => Arc.fromDict(data),
+  ellipse: (data) => Ellipse.fromDict(data),
   polyline: (data) => Polyline.fromDict(data),
   text: (data) => Text.fromDict(data),
   ...Object.fromEntries(DIMENSION_TYPES.map((t) => [t, (data: Record<string, unknown>) => Dimension.fromDict(data)])),

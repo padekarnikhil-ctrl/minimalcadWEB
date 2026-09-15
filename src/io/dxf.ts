@@ -11,11 +11,11 @@
  * Polyline entity).
  *
  * Scope note (the one deliberate deviation from the desktop app): this web
- * port's entity model doesn't yet have Table or Ellipse (see
- * entities/registry.ts), so export has nothing to explode besides
- * Dimension, and import degrades ELLIPSE/SPLINE into Polyline/Line rather
- * than a native Ellipse -- a circular ellipse (ratio ~= 1) still imports as
- * this app's existing Circle, same as the desktop app.
+ * port's entity model doesn't yet have Table (see entities/registry.ts),
+ * so export has nothing to explode besides Dimension. Ellipse import/
+ * export is fully native (see the ELLIPSE branches below); SPLINE still
+ * degrades into sampled Line segments, matching the desktop app's own
+ * "no NURBS entity" scope.
  */
 
 import type { Point } from "../core/types";
@@ -24,6 +24,7 @@ import type { Entity } from "../entities/entity";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 import { Text, DEFAULT_HEIGHT } from "../entities/text";
 import { Polyline } from "../entities/polyline";
 import type { Vertex } from "../entities/polyline";
@@ -79,6 +80,17 @@ function flipY(entities: Entity[]): Entity[] {
     } else if (ent instanceof Circle) {
       flipped.push(
         new Circle(flipYPoint(ent.center), ent.radius, {
+          lineType: ent.lineType,
+          dxfLayer: ent.dxfLayer,
+          dxfColor: ent.dxfColor,
+        }),
+      );
+    } else if (ent instanceof Ellipse) {
+      // Same reflection reasoning as Arc above -- rotation reflects across
+      // the X-axis (theta -> -theta), and winding flips too, so start/end
+      // are swapped-and-negated the same way.
+      flipped.push(
+        new Ellipse(flipYPoint(ent.center), ent.radiusX, ent.radiusY, -ent.rotation, -ent.endAngle, -ent.startAngle, {
           lineType: ent.lineType,
           dxfLayer: ent.dxfLayer,
           dxfColor: ent.dxfColor,
@@ -342,6 +354,30 @@ export function exportDxf(document: Document): string {
       );
     } else if (ent instanceof Polyline) {
       writePolyline(out, ent.vertices, ent.dxfLayer, ent.dxfColor, ent.closed);
+    } else if (ent instanceof Ellipse) {
+      // True DXF ELLIPSE is an R13+ entity and isn't legal under this
+      // file's declared AC1009 header (see this function's header
+      // comment), so it's approximated as a many-segment legacy POLYLINE
+      // -- closed for a full ellipse, open for an elliptical arc. Segment
+      // count scales with the swept angle, matching io/dxfDegrade.ts's
+      // own ELLIPSE-import sampling.
+      const full = ent.isFull();
+      const sweep = full ? 2.0 * Math.PI : ((ent.endAngle - ent.startAngle) % (2.0 * Math.PI) + 2.0 * Math.PI) % (2.0 * Math.PI);
+      const segments = Math.max(24, Math.round((144 * sweep) / (2.0 * Math.PI)));
+      const cosR = Math.cos(ent.rotation);
+      const sinR = Math.sin(ent.rotation);
+      const pointCount = full ? segments : segments + 1;
+      const vertices: Vertex[] = [];
+      for (let k = 0; k < pointCount; k++) {
+        const t = ent.startAngle + (sweep * k) / segments;
+        const lx = ent.radiusX * Math.cos(t);
+        const ly = ent.radiusY * Math.sin(t);
+        vertices.push({
+          point: { x: ent.center.x + lx * cosR - ly * sinR, y: ent.center.y + lx * sinR + ly * cosR },
+          bulge: 0,
+        });
+      }
+      writePolyline(out, vertices, ent.dxfLayer, ent.dxfColor, full);
     }
   }
 
@@ -359,8 +395,8 @@ export function exportDxf(document: Document): string {
 // vertex+bulge model directly, rather than exploding into separate Line/Arc
 // entities. Also natively understands LWPOLYLINE and ELLIPSE (circular
 // ellipses import as Circle; true/elliptical-arc ellipses import as a
-// sampled Polyline, since this port has no native Ellipse entity yet) for
-// broad interop with third-party R13+ files this app didn't itself write.
+// native Ellipse) for broad interop with third-party R13+ files this app
+// didn't itself write.
 //
 // Everything else follows a graceful-degradation strategy instead of being
 // silently dropped: whenever a DXF construct has no direct equivalent in
@@ -536,8 +572,7 @@ function entitiesFromPairs(pairs: Pair[]): ImportDxfResult {
         // ratio + start/end parameter (radians -- unlike almost every other
         // DXF angle field). A circular ellipse (ratio ~= 1) imports as this
         // app's existing Circle entity; a genuinely elliptical one (or an
-        // elliptical arc, via 41/42) is sampled into a Polyline, since this
-        // port has no native Ellipse entity yet.
+        // elliptical arc, via 41/42) imports as a native Ellipse.
         const [rec, next] = readRecord(pairs, i);
         i = next;
         const cx = Number(rec[10]);
@@ -560,26 +595,12 @@ function entitiesFromPairs(pairs: Pair[]): ImportDxfResult {
           } else {
             const rotation = Math.atan2(majorDy, majorDx);
             const minorRadius = majorRadius * ratio;
-            const full = Math.abs(((endParam - startParam) % (2 * Math.PI)) - 0) < 1e-9 || endParam - startParam >= 2 * Math.PI - 1e-9;
-            const sweep = full ? 2.0 * Math.PI : ((endParam - startParam) % (2.0 * Math.PI) + 2.0 * Math.PI) % (2.0 * Math.PI);
-            const segments = Math.max(24, Math.round((144 * sweep) / (2.0 * Math.PI)));
-            const cosR = Math.cos(rotation);
-            const sinR = Math.sin(rotation);
-            const pointCount = full ? segments : segments + 1;
-            const vertices: Vertex[] = [];
-            for (let k = 0; k < pointCount; k++) {
-              const t = startParam + (sweep * k) / segments;
-              const lx = majorRadius * Math.cos(t);
-              const ly = minorRadius * Math.sin(t);
-              vertices.push({
-                point: { x: cx + lx * cosR - ly * sinR, y: cy + lx * sinR + ly * cosR },
-                bulge: 0,
-              });
-            }
-            entities.push(new Polyline(vertices, full, { lineType, dxfLayer: layer, dxfColor: color }));
-            warnings.push(
-              `ELLIPSE on layer ${layer}: approximated as a ${pointCount}-segment polyline ` +
-                "(no native ellipse entity in this app -- exact curvature not preserved)",
+            entities.push(
+              new Ellipse({ x: cx, y: cy }, majorRadius, minorRadius, rotation, startParam, endParam, {
+                lineType,
+                dxfLayer: layer,
+                dxfColor: color,
+              }),
             );
           }
         }

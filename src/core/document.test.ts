@@ -55,11 +55,10 @@ describe("Document", () => {
       const doc = new Document();
       const parseResult = doc.restoreFromDict(parsed.snapshot);
 
-      // Phase E: "line", "circle", "arc", "polyline" are registered
-      // (entities/registry.ts). The fixture has 5 of those + 1 not-yet-supported
-      // type (ellipse) -- this count should shrink to 0 once Ellipse lands.
-      expect(parseResult.entities).toHaveLength(5);
-      expect(parseResult.skippedCount).toBe(1);
+      // line, circle, arc, polyline, ellipse are all registered
+      // (entities/registry.ts) -- nothing in this fixture is unsupported.
+      expect(parseResult.entities).toHaveLength(6);
+      expect(parseResult.skippedCount).toBe(0);
     });
 
     it("re-serializes recovered entities field-for-field identical to the source JSON", () => {
@@ -69,7 +68,7 @@ describe("Document", () => {
       const doc = new Document();
       doc.restoreFromDict(parsed.snapshot);
 
-      const recognizedTypes = new Set(["line", "circle", "arc", "polyline"]);
+      const recognizedTypes = new Set(["line", "circle", "arc", "polyline", "ellipse"]);
       const sourceRecognized = parsed.snapshot.entities.filter((e) =>
         recognizedTypes.has(e.type as string),
       );

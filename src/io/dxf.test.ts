@@ -4,6 +4,7 @@ import { Document } from "../core/document";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 import { Text } from "../entities/text";
 import { Polyline } from "../entities/polyline";
 import { Dimension } from "../entities/dimension";
@@ -233,7 +234,7 @@ describe("importDxf", () => {
     expect((result.entities[0] as Circle).radius).toBeCloseTo(5);
   });
 
-  it("degrades a genuinely elliptical ELLIPSE into a sampled Polyline, with a warning", () => {
+  it("imports a genuinely elliptical ELLIPSE as a native Ellipse, losslessly", () => {
     const dxf = [
       "0", "SECTION", "2", "ENTITIES",
       "0", "ELLIPSE", "8", "0",
@@ -243,8 +244,25 @@ describe("importDxf", () => {
 
     const result = importDxf(toBuffer(dxf))!;
     expect(result.entities).toHaveLength(1);
-    expect(result.entities[0]).toBeInstanceOf(Polyline);
-    expect(result.warnings.some((w) => w.includes("ELLIPSE"))).toBe(true);
+    expect(result.entities[0]).toBeInstanceOf(Ellipse);
+    const ellipse = result.entities[0] as Ellipse;
+    expect(ellipse.radiusX).toBeCloseTo(5);
+    expect(ellipse.radiusY).toBeCloseTo(2.5);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it("round-trips an elliptical arc Ellipse through export+import (approximated as a sampled POLYLINE, since AC1009 has no true ELLIPSE entity)", () => {
+    const doc = new Document();
+    doc.addEntity(new Ellipse({ x: 2, y: 3 }, 10, 4, 0, 0, Math.PI));
+    const dxf = exportDxf(doc);
+    expect(dxf).not.toContain("ELLIPSE");
+    expect(dxf).toContain("POLYLINE");
+
+    const result = importDxf(toBuffer(dxf))!;
+    expect(result.entities).toHaveLength(1);
+    const poly = result.entities[0] as Polyline;
+    expect(poly.closed).toBe(false);
+    expect(poly.vertices.length).toBeGreaterThan(10);
   });
 
   it("counts unsupported entity types (e.g. HATCH) into one summary warning instead of skipping silently", () => {
