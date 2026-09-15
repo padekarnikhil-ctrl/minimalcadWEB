@@ -26,6 +26,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   move: "Move",
   copy: "Copy",
   rotate: "Rotate",
+  polararray: "Polar Array",
   scale: "Scale",
   mirror: "Mirror",
   trim: "Trim",
@@ -48,7 +49,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 // their features land, not stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
-  ["move", "copy", "rotate", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
+  ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "scale"],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
 ];
 

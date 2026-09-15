@@ -166,6 +166,18 @@ function drawRotate(ctx: CanvasRenderingContext2D): void {
   arrowhead(ctx, tipX, tipY, (end * 180) / Math.PI + 90);
 }
 
+function drawPolarArray(ctx: CanvasRenderingContext2D): void {
+  const cx = 10;
+  const cy = 10;
+  const radius = 6.8;
+  for (let i = 0; i < 5; i++) {
+    const ang = ((90 + i * 72) * Math.PI) / 180;
+    ctx.beginPath();
+    ctx.arc(cx + radius * Math.cos(ang), cy + radius * Math.sin(ang), 1.4, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
 function drawTrim(ctx: CanvasRenderingContext2D): void {
   line(ctx, 2, 10, 18, 10);
   line(ctx, 7, 6, 13, 14);
@@ -314,6 +326,7 @@ const DRAWERS: Record<string, Drawer> = {
   move: drawMove,
   copy: drawCopy,
   rotate: drawRotate,
+  polararray: drawPolarArray,
   trim: drawTrim,
   offset: drawOffset,
   mirror: drawMirror,

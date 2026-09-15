@@ -18,6 +18,7 @@ import { CopyCommand } from "./copy";
 import { RotateCommand } from "./rotate";
 import { ScaleCommand } from "./scale";
 import { MirrorCommand } from "./mirror";
+import { PolarArrayCommand } from "./polarArray";
 import { TrimCommand } from "./trim";
 import { OffsetCommand } from "./offset";
 import { FilletCommand } from "./fillet";
@@ -49,6 +50,7 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   rotate: { factory: (engine) => new RotateCommand(engine), aliases: ["ro"] },
   scale: { factory: (engine) => new ScaleCommand(engine), aliases: ["s"] },
   mirror: { factory: (engine) => new MirrorCommand(engine), aliases: ["mi"] },
+  polararray: { factory: (engine) => new PolarArrayCommand(engine), aliases: ["pa"] },
   trim: { factory: (engine) => new TrimCommand(engine), aliases: ["t"] },
   offset: { factory: (engine) => new OffsetCommand(engine), aliases: ["o"] },
   fillet: { factory: (engine) => new FilletCommand(engine), aliases: ["f"] },
