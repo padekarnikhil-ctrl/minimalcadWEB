@@ -37,8 +37,6 @@ const commandBar = new CommandBar(commandBarEl);
 let view: CanvasView;
 const engine = new Engine(viewport, commandBar, () => view.requestRedraw());
 
-view = new CanvasView(canvasEl, viewport, engine);
-
 commandBar.addEventListener("inputSubmitted", (e) => {
   engine.commandManager.textInput((e as CustomEvent<string>).detail);
   view.requestRedraw();
@@ -59,7 +57,15 @@ commandBar.addEventListener("orthoClicked", () => {
   engine.toggleOrtho();
 });
 
+// Built before CanvasView so the toolbar's real, final layout (which may
+// wrap to a second row -- there are enough commands now that it can) is
+// already in the DOM before CanvasView's constructor sizes the canvas
+// against it. The ResizeObserver in canvasView.ts's constructor is the
+// actual belt-and-braces fix for any *later* layout-driven size change;
+// this ordering just makes sure the very first sizing is already correct.
 buildToolbar(toolbarEl, engine, () => view.requestRedraw());
+
+view = new CanvasView(canvasEl, viewport, engine);
 
 const homeBtn = document.getElementById("home-btn");
 if (homeBtn !== null) {

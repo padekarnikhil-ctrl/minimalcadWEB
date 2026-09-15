@@ -72,7 +72,15 @@ export class CanvasView {
     this.ctx = ctx;
 
     this.resizeToDisplaySize();
-    window.addEventListener("resize", () => this.resizeToDisplaySize());
+    // A ResizeObserver on the canvas itself, not just a window "resize"
+    // listener -- the canvas's own CSS box can change size from a pure
+    // layout reflow with no window resize at all (e.g. the toolbar wrapping
+    // to a second row once buildToolbar() populates it, which happens right
+    // after this constructor runs -- see main.ts's ordering comment). Without
+    // this, the canvas's backing store stays sized for its pre-toolbar
+    // layout and the browser silently stretches it to fit the real (now
+    // shorter) box, throwing off every click's mapping back to world space.
+    new ResizeObserver(() => this.resizeToDisplaySize()).observe(this.canvas);
 
     this.canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e));
