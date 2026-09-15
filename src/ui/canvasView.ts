@@ -37,6 +37,8 @@ import { pointDistance, type Bounds, type Point } from "../core/types";
 import type { Entity } from "../entities/entity";
 import type { Engine } from "../engine/engine";
 import type { GripCommand } from "../commands/types";
+import { Text } from "../entities/text";
+import { Dimension } from "../entities/dimension";
 
 const COLOR_BACKGROUND = "#1e1e1e";
 const COLOR_GRID = "#2d2d2d";
@@ -171,6 +173,7 @@ export class CanvasView {
     this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
     this.canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
     this.canvas.addEventListener("pointercancel", (e) => this.onPointerCancel(e));
+    this.canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.canvas.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.canvas.addEventListener("mouseleave", () => {
@@ -326,6 +329,47 @@ export class CanvasView {
     this.selectOrigin = null;
     this.selectCurrent = null;
     this.selectActive = false;
+    this.requestRedraw();
+  }
+
+  /**
+   * Ported from graphics/canvas.py's mouseDoubleClickEvent(): a double-click
+   * on a Text or Dimension entity edits its label content in place (see
+   * commands/editText.ts). The browser only sends "dblclick" for the second
+   * click of the pair -- the first already ran through the normal
+   * onPointerDown/runPointerDown/applySelectionPick path, so the entity is
+   * already selected by the time this fires.
+   *
+   * Mouse/pen only, deliberately: "dblclick" isn't part of this file's own
+   * Pointer Events touch gesture layer (handleTouchPointerDown/Move/End) at
+   * all, so this can't interfere with -- or need to account for -- the
+   * two-phase aim/confirm touch model elsewhere in this file. A touch
+   * double-tap equivalent is a separate future addition, not something this
+   * change touches.
+   */
+  private onDoubleClick(e: MouseEvent): void {
+    if (e.button !== 0) return;
+    if (this.engine.commandManager.currentCommand !== null) return; // don't interrupt an already-active command/gesture
+
+    const worldPos = this.viewport.screenToWorld(this.eventToScreenPoint(e));
+    const tolerance = this.engine.pickTolerance();
+    for (const entity of this.engine.document.getEntities()) {
+      if (!(entity instanceof Text || entity instanceof Dimension) || !entity.hitTest(worldPos, tolerance)) continue;
+
+      this.engine.selection.clear();
+      this.engine.selection.select(entity);
+      // The first click of this double-click already armed a potential body
+      // drag (see runPointerDown) -- disarm it so an in-progress edit isn't
+      // fighting a live move on the next pointermove.
+      this.dragEntities = null;
+      this.dragLastPos = null;
+      this.dragMoved = false;
+
+      this.engine.commandManager.startCommand("edittext");
+      const cmd = this.engine.commandManager.currentCommand as GripCommand | null;
+      cmd?.begin(entity, null);
+      break;
+    }
     this.requestRedraw();
   }
 

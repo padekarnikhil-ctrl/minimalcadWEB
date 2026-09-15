@@ -35,6 +35,7 @@ import { MoveGripCommand } from "./grips/moveGrip";
 import { ExtendGripCommand } from "./grips/extendGrip";
 import { CircleResizeGripCommand } from "./grips/circleResizeGrip";
 import { DimensionGripCommand } from "./grips/dimensionGrip";
+import { EditTextCommand } from "./editText";
 
 export interface RegistryEntry {
   factory: CommandFactory;
@@ -71,8 +72,9 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   gripextend: { factory: (engine) => new ExtendGripCommand(engine), aliases: [] },
   gripresize: { factory: (engine) => new CircleResizeGripCommand(engine), aliases: [] },
   dimensiongrip: { factory: (engine) => new DimensionGripCommand(engine), aliases: [] },
+  edittext: { factory: (engine) => new EditTextCommand(engine), aliases: [] },
 };
 
 /** Grip-entry-only commands excluded from blank-Enter "repeat last command" --
  *  a blank Enter after a grip edit shouldn't re-arm a grip tool with nothing to act on. */
-export const NON_REPEATABLE = new Set<string>(["movegrip", "gripextend", "gripresize", "dimensiongrip"]);
+export const NON_REPEATABLE = new Set<string>(["movegrip", "gripextend", "gripresize", "dimensiongrip", "edittext"]);
