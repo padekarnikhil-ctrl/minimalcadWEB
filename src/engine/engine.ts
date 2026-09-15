@@ -49,10 +49,11 @@ export class Engine {
     viewport: Viewport,
     commandBar: CommandBar,
     private requestRedrawCallback: () => void,
+    onCommandChanged?: () => void,
   ) {
     this.viewport = viewport;
     this.commandBar = commandBar;
-    this.commandManager = new CommandManager(this);
+    this.commandManager = new CommandManager(this, onCommandChanged);
   }
 
   requestRedraw(): void {

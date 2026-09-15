@@ -30,7 +30,21 @@ export class CommandManager {
   currentName = "READY";
   private lastCommandName: string | null = null;
 
-  constructor(engine: Engine) {
+  // Commands are singletons (see this file's own header comment), so a
+  // command instance's own identity can't distinguish "still the same
+  // in-progress use" from "the same command started over from scratch" --
+  // e.g. finishing one Line and immediately starting a fresh Line reuses the
+  // exact same LineCommand object. Fired on every startCommand()/cancel(),
+  // regardless of what command (if any) is involved, so UI-side state that
+  // outlives a single command use -- currently: canvasView.ts's touch
+  // point-pick candidate -- has one reliable place to reset from instead of
+  // needing to be threaded through every call site that can start or end a
+  // command (there are several: toolbar buttons, Escape, grip commands
+  // finishing, trim.ts, repeat-last, typed command names...).
+  constructor(
+    engine: Engine,
+    private onCommandChanged?: () => void,
+  ) {
     for (const [name, entry] of Object.entries(COMMAND_REGISTRY)) {
       this.commands.set(name, entry.factory(engine));
     }
@@ -52,6 +66,7 @@ export class CommandManager {
     }
 
     command.start();
+    this.onCommandChanged?.();
     return true;
   }
 
@@ -73,6 +88,7 @@ export class CommandManager {
     }
     this.currentCommand = null;
     this.currentName = "READY";
+    this.onCommandChanged?.();
   }
 
   leftClick(pt: Point): void {

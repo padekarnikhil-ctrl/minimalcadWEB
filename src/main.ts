@@ -36,7 +36,19 @@ const commandBar = new CommandBar(commandBarEl);
 // document to render), so this closure defers the actual lookup until first use,
 // by which point `view` below has already been assigned.
 let view: CanvasView;
-const engine = new Engine(viewport, commandBar, () => view.requestRedraw());
+const engine = new Engine(
+  viewport,
+  commandBar,
+  () => view.requestRedraw(),
+  // Fires on every command start/cancel, from wherever it happens (toolbar,
+  // Escape, a grip command finishing, trim.ts, repeat-last, ...) -- see
+  // CommandManager's own doc comment on this callback. Without this, a touch
+  // point-pick candidate frozen at the end of one command (see
+  // canvasView.ts's aim/confirm doc comment) stayed on screen after that
+  // command ended and got wrongly confirmed as the first point of whatever
+  // command ran next.
+  () => view.discardInFlightTouchPointPick(),
+);
 
 commandBar.addEventListener("inputSubmitted", (e) => {
   engine.commandManager.textInput((e as CustomEvent<string>).detail);
