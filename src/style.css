@@ -1,0 +1,184 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Courier New", monospace;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+#toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+#toolbar button {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
+  color: #d4d4d4;
+  background: #2d2d30;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+#toolbar button:hover {
+  background: #3c3c3c;
+}
+
+#toolbar button:active,
+#toolbar button.active {
+  background: #094771;
+}
+
+#toolbar .toolbar-gap {
+  width: 10px;
+}
+
+#canvas-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#cad-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  outline: none;
+  background: #1e1e1e;
+}
+
+/* Matches graphics/canvas_chrome.py's Home button exactly: top-right corner,
+   10px margin, 28x28 square, same colors/border/radius/font-size. */
+#home-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 15px;
+  color: #dddddd;
+  background: rgba(40, 40, 40, 0.78);
+  border: 1px solid #555555;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+#home-btn:hover {
+  background: rgba(60, 60, 60, 0.86);
+  border-color: #888888;
+}
+
+#command-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #252526;
+  border-top: 1px solid #3c3c3c;
+}
+
+#command-bar .prompt-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: #00ffff;
+  white-space: nowrap;
+}
+
+#command-bar input[type="text"] {
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  color: #ffffff;
+  background: #252526;
+  border: none;
+  outline: none;
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+
+#command-bar input[type="text"]:disabled {
+  color: #888888;
+}
+
+#command-bar .angle-marker {
+  font-size: 13px;
+  color: #ffff00;
+  display: none;
+}
+
+#command-bar .angle-marker.visible {
+  display: inline;
+}
+
+#command-bar input.angle-field {
+  display: none;
+  flex: 1 1 auto;
+}
+
+#command-bar input.angle-field.visible {
+  display: inline-block;
+}
+
+#command-bar .snap-label {
+  min-width: 100px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffff00;
+}
+
+#command-bar .ortho-label {
+  font-size: 12px;
+  color: #666666;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+#command-bar .ortho-label.enabled {
+  color: #00ff88;
+  font-weight: bold;
+}
+
+#toast {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2d2d30;
+  color: #ffffff;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+#toast.visible {
+  opacity: 1;
+}

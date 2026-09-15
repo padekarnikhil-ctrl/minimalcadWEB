@@ -1,0 +1,78 @@
+{
+  "entities": [
+    {
+      "type": "line",
+      "start": { "x": 0.0, "y": 0.0 },
+      "end": { "x": 100.0, "y": 0.0 },
+      "line_type": "solid",
+      "dxf_layer": "0",
+      "dxf_color": null,
+      "id": "aaaaaaaa"
+    },
+    {
+      "type": "line",
+      "start": { "x": 100.0, "y": 0.0 },
+      "end": { "x": 100.0, "y": 50.0 },
+      "line_type": "dashed",
+      "dxf_layer": "0",
+      "dxf_color": 5,
+      "id": "bbbbbbbb"
+    },
+    {
+      "type": "circle",
+      "center": { "x": 50.0, "y": 80.0 },
+      "radius": 20.0,
+      "line_type": "solid",
+      "dxf_layer": "0",
+      "dxf_color": null,
+      "id": "cccccccc"
+    },
+    {
+      "type": "arc",
+      "center": { "x": 150.0, "y": 80.0 },
+      "radius": 15.0,
+      "start_angle": 0.0,
+      "end_angle": 180.0,
+      "line_type": "solid",
+      "dxf_layer": "0",
+      "dxf_color": null,
+      "id": "dddddddd"
+    },
+    {
+      "type": "polyline",
+      "vertices": [
+        { "x": 0.0, "y": 100.0, "bulge": 0.0 },
+        { "x": 50.0, "y": 100.0, "bulge": 1.0 },
+        { "x": 100.0, "y": 100.0, "bulge": 0.0 }
+      ],
+      "closed": false,
+      "line_type": "solid",
+      "dxf_layer": "0",
+      "dxf_color": null
+    },
+    {
+      "type": "ellipse",
+      "center": { "x": 200.0, "y": 50.0 },
+      "radius_x": 30.0,
+      "radius_y": 15.0,
+      "rotation": 0.0,
+      "start_angle": 0.0,
+      "end_angle": 360.0,
+      "line_type": "solid",
+      "dxf_layer": "0",
+      "dxf_color": null,
+      "id": "eeeeeeee"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "cons0001",
+      "driven_entity_id": "aaaaaaaa",
+      "driven_feature": "start",
+      "ref_entity_id": "bbbbbbbb",
+      "ref_feature": "edge",
+      "target": 25.0
+    }
+  ],
+  "version": 1
+}
