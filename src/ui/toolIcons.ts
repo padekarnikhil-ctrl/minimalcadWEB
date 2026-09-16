@@ -331,6 +331,26 @@ function drawInsertDrawing(ctx: CanvasRenderingContext2D): void {
   line(ctx, 12, 6, 16, 6);
 }
 
+/** A shelf/tray baseline with an arrow either going down into it (saving to
+ *  the library) or up out of it (inserting from the library) -- ported
+ *  directly from ui/tool_icons.py's _draw_folder(). */
+function drawFolder(ctx: CanvasRenderingContext2D, arrowInto: boolean): void {
+  const x = 10;
+  const top = 2;
+  const bottom = 14;
+  if (arrowInto) {
+    line(ctx, x, top, x, bottom);
+    arrowhead(ctx, x, bottom, 90);
+  } else {
+    line(ctx, x, bottom, x, top);
+    arrowhead(ctx, x, top, -90);
+  }
+  line(ctx, 3, 18, 17, 18);
+}
+
+const drawInsertLib: Drawer = (ctx) => drawFolder(ctx, true);
+const drawSaveLib: Drawer = (ctx) => drawFolder(ctx, false);
+
 function drawCloud(ctx: CanvasRenderingContext2D): void {
   ctx.beginPath();
   ctx.arc(7, 12, 4, Math.PI * 0.5, Math.PI * 1.6);
@@ -374,6 +394,8 @@ const DRAWERS: Record<string, Drawer> = {
   exportdxf: drawExportDxf,
   importdxf: drawImportDxf,
   insertdrawing: drawInsertDrawing,
+  insertlib: drawInsertLib,
+  savelib: drawSaveLib,
   cloud: drawCloud,
 };
 
@@ -382,8 +404,14 @@ const DRAWERS: Record<string, Drawer> = {
  *  ui/canvasView.ts's own touch handling -- a plain 20x20 canvas would
  *  render blurry on a high-DPI screen once scaled up by CSS). No-op
  *  (blank icon) for an unrecognized name, matching tool_icons.py's own
- *  build_icon() falling through silently rather than throwing. */
-export function drawIcon(name: string, canvas: HTMLCanvasElement): void {
+ *  build_icon() falling through silently rather than throwing.
+ *
+ *  `color`, when given, overrides the normal stroke/fill color -- used by
+ *  ui/cloudPanelImpl.ts to recolor the Cloud icon to the same cyan as the
+ *  command bar's own status text (#00ffff) while signed in, an
+ *  at-a-glance "this session is logged in" indicator with no separate
+ *  badge/text needed. */
+export function drawIcon(name: string, canvas: HTMLCanvasElement, color: string = STROKE_COLOR): void {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = SIZE * dpr;
   canvas.height = SIZE * dpr;
@@ -394,8 +422,8 @@ export function drawIcon(name: string, canvas: HTMLCanvasElement): void {
   if (ctx === null) return;
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, SIZE, SIZE);
-  ctx.strokeStyle = STROKE_COLOR;
-  ctx.fillStyle = STROKE_COLOR;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   ctx.lineWidth = STROKE_WIDTH;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";

@@ -43,16 +43,20 @@ const DISPLAY_NAMES: Record<string, string> = {
   diameter: "Diameter Dim",
   radius: "Radius Dim",
   leader: "Leader",
+  insertlib: "Insert from Library",
+  savelib: "Save to Library",
 };
 
 // Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
-// Dimension) -- restricted to commands this web port actually has;
-// entries the desktop has but this port doesn't yet (table, linetype,
-// constrain) are simply absent until their features land, not stubbed.
+// Dimension / File & Library) -- restricted to commands this web port
+// actually has; entries the desktop has but this port doesn't yet (table,
+// linetype, constrain, pdfexport) are simply absent until their features
+// land, not stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
   ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "join", "explode", "scale"],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
+  ["insertlib", "savelib"],
 ];
 
 function displayName(name: string): string {

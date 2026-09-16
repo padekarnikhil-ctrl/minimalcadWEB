@@ -46,8 +46,14 @@ let currentDrawingName = "Untitled";
 
 let panelEl: HTMLDivElement | null = null;
 let cloudButtonEl: HTMLButtonElement | null = null;
+let cloudIconCanvas: HTMLCanvasElement | null = null;
 let engineRef: Engine | null = null;
 let requestRedrawRef: (() => void) | null = null;
+
+// Same cyan as #command-bar .prompt-label in style.css (the "READY"/status
+// text color) -- reused here, not redefined independently, so the Cloud
+// icon's signed-in indicator always matches it even if that color changes.
+const SIGNED_IN_COLOR = "#00ffff";
 
 /** Called by ui/toolbar.ts whenever the document is replaced by something
  *  other than opening this exact cloud drawing (local Open, DXF Import) --
@@ -85,6 +91,7 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
   });
   toolbarRoot.appendChild(btn);
   cloudButtonEl = btn;
+  cloudIconCanvas = canvas;
 
   panelEl = document.createElement("div");
   panelEl.id = "cloud-panel";
@@ -110,6 +117,9 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
 
   onAuthStateChange((user) => {
     currentUser = user;
+    if (cloudIconCanvas !== null) {
+      drawIcon("cloud", cloudIconCanvas, user !== null ? SIGNED_IN_COLOR : undefined);
+    }
     if (panelEl !== null && !panelEl.hidden) refreshAndRender();
   });
 }

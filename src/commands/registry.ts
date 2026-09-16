@@ -36,6 +36,8 @@ import { ExtendGripCommand } from "./grips/extendGrip";
 import { CircleResizeGripCommand } from "./grips/circleResizeGrip";
 import { DimensionGripCommand } from "./grips/dimensionGrip";
 import { EditTextCommand } from "./editText";
+import { SaveLibCommand } from "./saveLib";
+import { InsertLibCommand } from "./insertLib";
 
 export interface RegistryEntry {
   factory: CommandFactory;
@@ -67,6 +69,8 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   diameter: { factory: (engine) => new DiameterDimensionCommand(engine), aliases: ["ddi"] },
   radius: { factory: (engine) => new RadiusDimensionCommand(engine), aliases: ["dra"] },
   leader: { factory: (engine) => new LeaderCommand(engine), aliases: ["le", "lead"] },
+  insertlib: { factory: (engine) => new InsertLibCommand(engine), aliases: ["il", "insert"] },
+  savelib: { factory: (engine) => new SaveLibCommand(engine), aliases: ["sl"] },
   // Contextual-only: entered directly via canvasView's grip hit-test, never typed.
   movegrip: { factory: (engine) => new MoveGripCommand(engine), aliases: [] },
   gripextend: { factory: (engine) => new ExtendGripCommand(engine), aliases: [] },
