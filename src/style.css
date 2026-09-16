@@ -38,8 +38,30 @@ body {
      toolbar". Safe now specifically because canvasView.ts's ResizeObserver
      (added for this exact reason) re-syncs the canvas whenever the
      toolbar's own wrapped height changes, so it can't silently distort
-     click-to-world mapping the way it used to before that fix existed. */
+     click-to-world mapping the way it used to before that fix existed.
+     Overridden below for a fine (mouse/trackpad) pointer -- see that rule's
+     own comment for why a single compact row is the better tradeoff there
+     instead. */
   flex-shrink: 0;
+}
+
+/* Desktop (mouse/trackpad, not a touchscreen -- same any-pointer signal
+   ui/mobileNumpad's own #mobile-touch-ui uses, just inverted): every
+   command button is meant to fit on one row here, never wrapping to a
+   second -- a mouse has no need for the larger, more thumb-friendly touch
+   target sizing the base rules above use, so shrinking the icon buttons and
+   tightening the gaps between them (see the matching #toolbar button.icon-btn
+   and .toolbar-gap overrides further down) buys back enough width for
+   every button to fit a single row on an ordinary desktop window without
+   needing to scroll or wrap. Left as wrap-to-multiple-rows at full touch
+   sizing on a coarse (touch) pointer -- see the base #toolbar rule's own
+   comment for that case. */
+@media (any-pointer: fine) {
+  #toolbar {
+    flex-wrap: nowrap;
+    gap: 1px;
+    padding: 4px;
+  }
 }
 
 #toolbar button {
@@ -67,6 +89,16 @@ body {
   padding: 0;
 }
 
+/* Smaller housing around the SAME 20px glyph (ui/toolIcons.ts's drawIcon()
+   always renders at a fixed 20px regardless of button size) -- see the
+   #toolbar rule's own fine-pointer comment for why. */
+@media (any-pointer: fine) {
+  #toolbar button.icon-btn {
+    width: 24px;
+    height: 24px;
+  }
+}
+
 #toolbar button.icon-btn canvas {
   display: block;
   pointer-events: none; /* clicks land on the <button>, not the canvas */
@@ -84,6 +116,12 @@ body {
 #toolbar .toolbar-gap {
   flex: 0 0 auto;
   width: 10px;
+}
+
+@media (any-pointer: fine) {
+  #toolbar .toolbar-gap {
+    width: 5px;
+  }
 }
 
 #tab-bar {
