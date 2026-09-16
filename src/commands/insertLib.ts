@@ -2,23 +2,13 @@
  * MinimalCAD Web
  * commands/insertLib.ts
  *
- * Ported from commands/insert_library.py's core workflow: type a saved
- * part's name to merge it into the current canvas, repeating to insert
- * several without re-running the command, Escape to finish.
- *
- * Deliberately simpler than the desktop source's exact UI: insert_library.py
- * drives a live-filtering suggestion dropdown (arrow keys to navigate,
- * Enter accepts the highlighted row, comma inserts-and-continues) built on
- * a QListWidget popup ui/command_bar.py owns. This port has no such
- * dropdown primitive (nor, arguably, much use for one on a touch-first
- * tablet UI, where the existing cloud-panel Parts Library list -- tap a
- * row's own Insert button -- already covers that exact interaction more
- * naturally than a keyboard-driven autocomplete would). Typing a name (or
- * enough of one to match exactly one part) and pressing Enter is the same
- * core gesture with none of that new UI surface: unambiguous substring
- * matches insert immediately, an ambiguous one lists the candidates so the
- * user can type more, matching the same information the dropdown would
- * have shown, just via the status line instead of a popup list.
+ * Ported from commands/insert_library.py's workflow, now including the
+ * desktop's actual live-filtering suggestion popup (arrow keys to navigate,
+ * Enter accepts the highlighted row, comma inserts-and-continues) via
+ * ui/commandBar.ts's showSuggestions()/hideSuggestions() primitive and its
+ * textChanged/suggestionAcceptedContinue events -- the CommandBar owns all
+ * keyboard interception for the popup; this command only ever tells it what
+ * list to show and reacts to the two events it emits.
  *
  * @supabase/supabase-js is NEVER statically imported here -- see
  * commands/saveLib.ts's header comment for why (this file mirrors that
@@ -46,6 +36,20 @@ export class InsertLibCommand extends BaseCommand {
 
   constructor(engine: Engine) {
     super(engine);
+
+    // Attached once, for the lifetime of this singleton instance -- guarded
+    // by "am I the currently active command" instead of connect/disconnect,
+    // since CommandManager never constructs a second InsertLibCommand.
+    this.commandBar.addEventListener("textChanged", (e) => {
+      this.onTextChanged((e as CustomEvent<string>).detail);
+    });
+    this.commandBar.addEventListener("suggestionAcceptedContinue", (e) => {
+      this.onSuggestionAcceptedContinue((e as CustomEvent<string>).detail);
+    });
+  }
+
+  private isActive(): boolean {
+    return this.engine.commandManager.currentCommand === this;
   }
 
   start(): void {
@@ -83,22 +87,56 @@ export class InsertLibCommand extends BaseCommand {
       this.commandBar.disableInput();
       return;
     }
-    this.commandBar.setStatus("INSERT FROM LIBRARY", "Type a part name (Enter to insert, Escape to finish)");
+    this.commandBar.setStatus(
+      "INSERT FROM LIBRARY",
+      "Type a part name (Enter to insert, , to insert & continue, Escape to finish)",
+    );
     this.commandBar.enableInput("text");
+    this.commandBar.showSuggestions(this.names.map((p) => p.name));
+  }
+
+  // Live-filters the popup as the user types -- this is what makes it a
+  // suggestion list rather than a static one. Left alone while a fetch is in
+  // flight so a stray keystroke can't fight the async insert/reload path.
+  private onTextChanged(text: string): void {
+    if (!this.isActive() || this.busy) return;
+    const query = text.trim().toLowerCase();
+    const pool = query === "" ? this.names : this.names.filter((p) => p.name.toLowerCase().includes(query));
+    this.commandBar.showSuggestions(pool.map((p) => p.name));
+  }
+
+  // Comma on a highlighted popup row: identical effect to typing that exact
+  // name and pressing Enter, just without the popup blinking closed first.
+  private onSuggestionAcceptedContinue(name: string): void {
+    if (!this.isActive() || this.busy) return;
+    const part = this.names.find((p) => p.name === name);
+    if (part === undefined) return;
+    this.insertPart(part);
   }
 
   textInput(text: string): void {
     if (this.busy) return;
-    const query = text.trim().toLowerCase();
-    if (query === "") {
+    const trimmed = text.trim();
+    if (trimmed === "") {
       const available = this.names.map((p) => p.name).join(", ");
       this.commandBar.setStatus("INSERT FROM LIBRARY", `Available: ${available}`);
       return;
     }
 
+    // The popup always resolves Enter to one exact row's name -- check that
+    // first so a part whose name is a substring of another's (e.g.
+    // "Bracket" vs. "Bracket Large") can't be rejected as "ambiguous" when
+    // the user in fact picked the unambiguous row.
+    const exact = this.names.find((p) => p.name === trimmed);
+    if (exact !== undefined) {
+      this.insertPart(exact);
+      return;
+    }
+
+    const query = trimmed.toLowerCase();
     const matches = this.names.filter((p) => p.name.toLowerCase().includes(query));
     if (matches.length === 0) {
-      this.commandBar.setStatus("INSERT FROM LIBRARY", `No part matches "${text.trim()}"`);
+      this.commandBar.setStatus("INSERT FROM LIBRARY", `No part matches "${trimmed}"`);
       return;
     }
     if (matches.length > 1) {
@@ -159,6 +197,7 @@ export class InsertLibCommand extends BaseCommand {
           `Inserted "${part.name}"${skippedNote} - next part name (Enter), or Escape to finish`,
         );
         this.commandBar.enableInput("text");
+        this.commandBar.showSuggestions(this.names.map((p) => p.name));
         this.engine.requestRedraw();
       });
     });

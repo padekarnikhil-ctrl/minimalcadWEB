@@ -13,7 +13,11 @@ import { Viewport } from "../engine/viewport";
 import type { CommandBar } from "../ui/commandBar";
 
 function makeFakeCommandBar(): CommandBar {
-  const fake = {
+  // Backed by a real EventTarget (rather than no-op stubs) so tests can
+  // exercise commands that listen for the popup's textChanged/
+  // suggestionAcceptedContinue events (see commands/insertLib.test.ts) by
+  // dispatching them the same way the real CommandBar would.
+  const fake = Object.assign(new EventTarget(), {
     setStatus: () => {},
     enableInput: () => {},
     disableInput: () => {},
@@ -28,10 +32,9 @@ function makeFakeCommandBar(): CommandBar {
     setSnap: () => {},
     setTypedCommand: () => {},
     setOrtho: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  };
+    showSuggestions: () => {},
+    hideSuggestions: () => {},
+  });
   return fake as unknown as CommandBar;
 }
 

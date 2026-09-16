@@ -37,6 +37,16 @@ export class CommandBar extends EventTarget {
   private fieldLocked = false;
   private angleLocked = false;
 
+  // Live-filtering suggestion popup (ui/command_bar.py's suggestions_list),
+  // used by commands/insertLib.ts. Owned entirely here, same as every other
+  // command-bar UI primitive -- a command only ever calls showSuggestions()/
+  // hideSuggestions() and listens for the two events below; all keyboard
+  // interception (arrows/Enter/comma) happens in onFieldKeyDown(), never
+  // seen by the command itself, matching the desktop split exactly.
+  private suggestionsList: HTMLDivElement;
+  private suggestionNames: string[] = [];
+  private suggestionIndex = -1;
+
   constructor(root: HTMLElement) {
     super();
     this.root = root;
@@ -65,6 +75,11 @@ export class CommandBar extends EventTarget {
     this.orthoLabel.textContent = "ORTHO";
     this.orthoLabel.title = "Toggle Ortho (F8)";
     this.orthoLabel.addEventListener("click", () => this.dispatchEvent(new CustomEvent("orthoClicked")));
+
+    this.suggestionsList = document.createElement("div");
+    this.suggestionsList.className = "suggestions-list";
+    this.suggestionsList.hidden = true;
+    this.root.append(this.suggestionsList);
 
     this.root.append(
       this.promptLabel,
@@ -137,6 +152,39 @@ export class CommandBar extends EventTarget {
     this.clear();
     this.disableInput();
     this.disableDualInput();
+    this.hideSuggestions();
+  }
+
+  /**
+   * Live-filtering popup (ui/command_bar.py's show_suggestions), rebuilt from
+   * scratch on every call -- a command re-calls this on every textChanged
+   * with its own filtered list. Row 0 is always pre-highlighted, matching
+   * desktop (a bare Enter with an untouched/cleared field resolves to the
+   * first suggestion, not to empty text).
+   */
+  showSuggestions(names: string[]): void {
+    this.suggestionNames = names;
+    this.suggestionIndex = names.length > 0 ? 0 : -1;
+    this.suggestionsList.replaceChildren();
+    for (const name of names) {
+      const row = document.createElement("div");
+      row.className = "suggestion-row";
+      row.textContent = name;
+      // Keep focus (and the caret) on the input field; a click on the row
+      // must not blur it first.
+      row.addEventListener("mousedown", (e) => e.preventDefault());
+      row.addEventListener("click", () => this.acceptSuggestion(name));
+      this.suggestionsList.appendChild(row);
+    }
+    this.suggestionsList.hidden = names.length === 0;
+    this.renderSuggestionHighlight();
+  }
+
+  hideSuggestions(): void {
+    this.suggestionsList.hidden = true;
+    this.suggestionsList.replaceChildren();
+    this.suggestionNames = [];
+    this.suggestionIndex = -1;
   }
 
   enableDualInput(distanceDefault = "0.00", angleDefault = "0.0"): void {
@@ -257,6 +305,27 @@ export class CommandBar extends EventTarget {
   }
 
   private onFieldKeyDown(field: HTMLInputElement, e: KeyboardEvent): void {
+    const suggestionsVisible =
+      field === this.inputField && !this.suggestionsList.hidden && this.suggestionNames.length > 0;
+
+    if (suggestionsVisible) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.moveSuggestionHighlight(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        this.moveSuggestionHighlight(-1);
+        return;
+      }
+      if (e.key === "," && this.suggestionIndex >= 0) {
+        e.preventDefault();
+        this.acceptSuggestionContinue(this.suggestionNames[this.suggestionIndex]!);
+        return;
+      }
+    }
+
     if (e.key === "Escape") {
       this.dispatchEvent(new CustomEvent("escapePressed"));
       e.preventDefault();
@@ -265,7 +334,11 @@ export class CommandBar extends EventTarget {
 
     if (e.key === "Enter") {
       e.preventDefault();
-      this.submit();
+      if (suggestionsVisible && this.suggestionIndex >= 0) {
+        this.acceptSuggestion(this.suggestionNames[this.suggestionIndex]!);
+      } else {
+        this.submit();
+      }
       return;
     }
 
@@ -274,6 +347,39 @@ export class CommandBar extends EventTarget {
       this.handleTab(field);
       return;
     }
+  }
+
+  private moveSuggestionHighlight(delta: number): void {
+    if (this.suggestionNames.length === 0) return;
+    this.suggestionIndex = Math.max(0, Math.min(this.suggestionNames.length - 1, this.suggestionIndex + delta));
+    this.renderSuggestionHighlight();
+  }
+
+  private renderSuggestionHighlight(): void {
+    const rows = this.suggestionsList.children;
+    for (let i = 0; i < rows.length; i++) {
+      rows[i]!.classList.toggle("active", i === this.suggestionIndex);
+    }
+  }
+
+  // Enter (or a click) on a highlighted row: hide the popup and submit it
+  // exactly as if the user had typed it and pressed Enter -- mirrors
+  // command_bar.py's _accept_suggestion.
+  private acceptSuggestion(name: string): void {
+    this.hideSuggestions();
+    this.inputField.value = name;
+    this.submit();
+  }
+
+  // Comma on a highlighted row: matches ui/command_bar.py's
+  // _accept_suggestion_continue -- clears the field and tells the command
+  // which row was picked via a dedicated event, but deliberately leaves the
+  // popup showing (the command re-populates it once it knows the next state,
+  // e.g. back to the full unfiltered list) so the user can keep picking
+  // without retyping or re-opening anything.
+  private acceptSuggestionContinue(name: string): void {
+    this.inputField.value = "";
+    this.dispatchEvent(new CustomEvent("suggestionAcceptedContinue", { detail: name }));
   }
 
   /**

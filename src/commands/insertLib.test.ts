@@ -165,4 +165,70 @@ describe("InsertLibCommand", () => {
 
     expect(engine.document.entities).toHaveLength(0);
   });
+
+  describe("suggestion popup wiring (commandBar.showSuggestions/textChanged/suggestionAcceptedContinue)", () => {
+    it("shows the full list once loaded, then live-filters as textChanged fires", async () => {
+      const engine = makeTestEngine();
+      const showSuggestions = vi.spyOn(engine.commandBar, "showSuggestions");
+      mockListParts.mockResolvedValue({
+        ok: true,
+        value: [
+          { id: "1", name: "Bracket Small" },
+          { id: "2", name: "Bracket Large" },
+          { id: "3", name: "Hinge" },
+        ],
+      });
+
+      const cmd = new InsertLibCommand(engine);
+      engine.commandManager.currentCommand = cmd;
+      cmd.start();
+      await vi.waitFor(() => expect(mockListParts).toHaveBeenCalled());
+
+      expect(showSuggestions).toHaveBeenLastCalledWith(["Bracket Small", "Bracket Large", "Hinge"]);
+
+      engine.commandBar.dispatchEvent(new CustomEvent("textChanged", { detail: "hin" }));
+      expect(showSuggestions).toHaveBeenLastCalledWith(["Hinge"]);
+    });
+
+    it("does not react to popup events while a different command is active", async () => {
+      const engine = makeTestEngine();
+      const showSuggestions = vi.spyOn(engine.commandBar, "showSuggestions");
+      mockListParts.mockResolvedValue({ ok: true, value: [{ id: "1", name: "Bracket" }] });
+
+      const cmd = new InsertLibCommand(engine);
+      // Deliberately never assigned as currentCommand -- simulates the shared
+      // commandBar firing textChanged for some other active command.
+      cmd.start();
+      await vi.waitFor(() => expect(mockListParts).toHaveBeenCalled());
+      showSuggestions.mockClear();
+
+      engine.commandBar.dispatchEvent(new CustomEvent("textChanged", { detail: "brack" }));
+      expect(showSuggestions).not.toHaveBeenCalled();
+    });
+
+    it("suggestionAcceptedContinue inserts the named part and re-shows the full list for another", async () => {
+      const engine = makeTestEngine();
+      const showSuggestions = vi.spyOn(engine.commandBar, "showSuggestions");
+      mockListParts.mockResolvedValue({
+        ok: true,
+        value: [
+          { id: "1", name: "Bracket" },
+          { id: "2", name: "Hinge" },
+        ],
+      });
+      mockFetchPart.mockResolvedValue({ ok: true, value: { id: "1", name: "Bracket", snapshot: bracketSnapshot() } });
+
+      const cmd = new InsertLibCommand(engine);
+      engine.commandManager.currentCommand = cmd;
+      cmd.start();
+      await vi.waitFor(() => expect(mockListParts).toHaveBeenCalled());
+
+      engine.commandBar.dispatchEvent(new CustomEvent("suggestionAcceptedContinue", { detail: "Bracket" }));
+      await vi.waitFor(() => expect(mockFetchPart).toHaveBeenCalledWith("1"));
+      await vi.waitFor(() => expect(engine.document.entities.filter((e) => e instanceof Line)).toHaveLength(1));
+
+      // Loops back to the unfiltered list, ready for another comma-continue or Enter.
+      expect(showSuggestions).toHaveBeenLastCalledWith(["Bracket", "Hinge"]);
+    });
+  });
 });
