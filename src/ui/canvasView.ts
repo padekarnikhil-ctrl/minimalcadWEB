@@ -41,6 +41,7 @@ import { Text } from "../entities/text";
 import { Dimension } from "../entities/dimension";
 import { constraintAt, constraintLinePoints } from "../core/constraints";
 import type { Constraint } from "../core/constraints";
+import { copySelection, pasteClipboard } from "../engine/clipboard";
 
 const COLOR_BACKGROUND = "#1e1e1e";
 const COLOR_GRID = "#2d2d2d";
@@ -849,6 +850,26 @@ export class CanvasView {
 
     if (commandActive) {
       this.engine.commandManager.keyPress(e.key);
+      return;
+    }
+
+    // Copy/paste, READY state only (matches Delete/Escape's own "only at
+    // rest" convention below) -- Ctrl or Cmd so this works the same on
+    // Windows/Linux and macOS. engine/clipboard.ts is plain module state
+    // shared across every tab (engine/session.ts), not the browser's real
+    // system clipboard, so this is how a selection made in one tab gets
+    // pasted into another: copy here, switch tabs, paste there -- `this.engine`
+    // is always whichever tab is currently active (see setActiveSession()).
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "c") {
+      copySelection(this.engine);
+      e.preventDefault();
+      this.requestRedraw();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
+      pasteClipboard(this.engine);
+      e.preventDefault();
+      this.requestRedraw();
       return;
     }
 
