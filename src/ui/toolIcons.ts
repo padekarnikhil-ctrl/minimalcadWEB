@@ -321,6 +321,35 @@ function drawDocumentArrow(ctx: CanvasRenderingContext2D, downward: boolean): vo
 const drawExportDxf: Drawer = (ctx) => drawDocumentArrow(ctx, true);
 const drawImportDxf: Drawer = (ctx) => drawDocumentArrow(ctx, false);
 
+/** Page outline with a folded top-right corner (classic "file" glyph) plus
+ *  a lettered "PDF" label -- deliberately distinct from Export/Import DXF's
+ *  plain document+arrow glyph (drawDocumentArrow) so the two read as
+ *  different actions at a glance despite both being document exports. */
+function drawExportPdf(ctx: CanvasRenderingContext2D): void {
+  const left = 3;
+  const top = 2;
+  const right = 17;
+  const bottom = 18;
+  const fold = 5;
+
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(right - fold, top);
+  ctx.lineTo(right, top + fold);
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left, bottom);
+  ctx.closePath();
+  ctx.stroke();
+  line(ctx, right - fold, top, right - fold, top + fold);
+  line(ctx, right - fold, top + fold, right, top + fold);
+
+  ctx.font = "bold 6px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = STROKE_COLOR;
+  ctx.fillText("PDF", (left + right) / 2, bottom - 4);
+}
+
 function drawInsertDrawing(ctx: CanvasRenderingContext2D): void {
   // Two overlapping page rectangles (the current drawing + the one being
   // merged in), plus a small "+" -- distinguishes this from Copy's plain
@@ -409,6 +438,7 @@ const DRAWERS: Record<string, Drawer> = {
   insertlib: drawInsertLib,
   savelib: drawSaveLib,
   constrain: drawConstrain,
+  pdfexport: drawExportPdf,
   cloud: drawCloud,
 };
 

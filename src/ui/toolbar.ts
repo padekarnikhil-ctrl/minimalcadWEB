@@ -52,13 +52,13 @@ const DISPLAY_NAMES: Record<string, string> = {
   insertlib: "Insert from Library",
   savelib: "Save to Library",
   constrain: "Constrain Distance",
+  pdfexport: "Export PDF",
 };
 
 // Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
 // Dimension / File & Library) -- restricted to commands this web port
 // actually has; entries the desktop has but this port doesn't yet (table,
-// linetype, pdfexport) are simply absent until their features land, not
-// stubbed.
+// linetype) are simply absent until their features land, not stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
   [
@@ -77,7 +77,7 @@ const COMMAND_GROUPS: readonly (readonly string[])[] = [
     "constrain",
   ],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
-  ["insertlib", "savelib"],
+  ["pdfexport", "insertlib", "savelib"],
 ];
 
 function displayName(name: string): string {
@@ -174,9 +174,6 @@ export function buildToolbar(root: HTMLElement, getActiveEngine: () => Engine, r
 
   root.appendChild(gap());
 
-  // Export PDF (when it lands -- see this file's own header comment on
-  // desktop-only stubs not yet ported) should call promptFilename("Export PDF", "pdf")
-  // the same way, so every downloaded file is always user-named, never a bare timestamp.
   addUtilityButton(root, "exportdxf", "Export DXF", () => {
     const filename = promptFilename("Export DXF", "dxf");
     if (filename === null) return;

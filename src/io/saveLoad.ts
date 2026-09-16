@@ -31,13 +31,13 @@ function timestamp(): string {
 }
 
 /**
- * Asks the user to name a file before it's downloaded -- shared by Save and
- * Export DXF (and intended for a future PDF export button too, see
- * ui/toolbar.ts's own comment on that). Pre-fills with `defaultBase` (no
- * extension); strips a trailing `.<extension>` the user may have typed
- * themselves so it's never doubled up, and always re-appends the real one.
- * Returns null if the user cancelled the native prompt -- callers should
- * abort the save/export entirely in that case, same as Cancel on Rename.
+ * Asks the user to name a file before it's downloaded -- shared by Save,
+ * Export DXF, and Export PDF (commands/exportPdf.ts). Pre-fills with
+ * `defaultBase` (no extension); strips a trailing `.<extension>` the user
+ * may have typed themselves so it's never doubled up, and always re-appends
+ * the real one. Returns null if the user cancelled the native prompt --
+ * callers should abort the save/export entirely in that case, same as
+ * Cancel on Rename.
  */
 export function promptFilename(title: string, extension: string, defaultBase = "Untitled"): string | null {
   const typed = window.prompt(title, defaultBase);
@@ -51,7 +51,7 @@ export function promptFilename(title: string, extension: string, defaultBase = "
   return `${base}${suffix}`;
 }
 
-function downloadBlob(content: string, mimeType: string, filename: string): void {
+function downloadBlob(content: BlobPart, mimeType: string, filename: string): void {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
 
@@ -72,6 +72,17 @@ export function saveDocumentToFile(doc: Document, filename = `minimalcad-${times
  *  file_io/dxf.py output exactly) -- see io/dxf.ts for the format itself. */
 export function exportDxfToFile(doc: Document, filename = `minimalcad-${timestamp()}.dxf`): void {
   downloadBlob(exportDxf(doc), "application/dxf", filename);
+}
+
+/** Downloads already-built PDF bytes (io/pdf.ts's exportPdf()) -- a separate
+ *  binary-safe path from downloadBlob's string content, since a PDF's object
+ *  streams/xref table are byte-exact, not text. */
+export function downloadPdfBytes(bytes: Uint8Array, filename = `minimalcad-${timestamp()}.pdf`): void {
+  // Uint8Array is a perfectly valid Blob part at runtime; the cast is only
+  // needed because TS's lib.dom types pin BlobPart's ArrayBufferView to a
+  // plain ArrayBuffer specifically, while a freshly built Uint8Array's
+  // inferred buffer type is the wider ArrayBufferLike.
+  downloadBlob(bytes as unknown as BlobPart, "application/pdf", filename);
 }
 
 /** Opens the browser's file picker, reads the chosen file as JSON, and resolves

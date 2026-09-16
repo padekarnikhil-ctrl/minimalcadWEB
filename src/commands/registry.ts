@@ -39,6 +39,7 @@ import { EditTextCommand } from "./editText";
 import { SaveLibCommand } from "./saveLib";
 import { InsertLibCommand } from "./insertLib";
 import { ConstrainDistanceCommand } from "./constrainDistance";
+import { ExportPdfCommand } from "./exportPdf";
 
 export interface RegistryEntry {
   factory: CommandFactory;
@@ -73,6 +74,7 @@ export const COMMAND_REGISTRY: Record<string, RegistryEntry> = {
   insertlib: { factory: (engine) => new InsertLibCommand(engine), aliases: ["il", "insert"] },
   savelib: { factory: (engine) => new SaveLibCommand(engine), aliases: ["sl"] },
   constrain: { factory: (engine) => new ConstrainDistanceCommand(engine), aliases: ["con", "cdist"] },
+  pdfexport: { factory: (engine) => new ExportPdfCommand(engine), aliases: ["pdf"] },
   // Contextual-only: entered directly via canvasView's grip hit-test, never typed.
   movegrip: { factory: (engine) => new MoveGripCommand(engine), aliases: [] },
   gripextend: { factory: (engine) => new ExtendGripCommand(engine), aliases: [] },
