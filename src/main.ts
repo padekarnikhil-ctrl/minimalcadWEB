@@ -13,6 +13,7 @@ import { CanvasView } from "./ui/canvasView";
 import { CommandBar } from "./ui/commandBar";
 import { buildToolbar } from "./ui/toolbar";
 import { buildMobileNumpad } from "./ui/mobileNumpad";
+import { initAutosave } from "./ui/autosaveController";
 import { Viewport } from "./engine/viewport";
 import { Engine } from "./engine/engine";
 
@@ -82,6 +83,8 @@ commandBar.addEventListener("orthoClicked", () => {
 buildToolbar(toolbarEl, engine, () => view.requestRedraw());
 
 view = new CanvasView(canvasEl, viewport, engine);
+
+initAutosave(engine, () => view.requestRedraw());
 
 const homeBtn = document.getElementById("home-btn");
 if (homeBtn !== null) {

@@ -342,6 +342,39 @@ body {
   opacity: 1;
 }
 
+#restore-prompt {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #2d2d30;
+  color: #ffffff;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+#restore-prompt button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid #3c3c3c;
+  background: #3c3c3c;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+#restore-prompt button:first-of-type {
+  background: #094771;
+  border-color: #0e639c;
+}
+
 /* Cloud account/drawings panel -- a plain floating box (not a full-screen
    modal backdrop, to stay consistent with this app's otherwise chromeless
    dark UI), toggled via the toolbar's "Cloud" button. */
