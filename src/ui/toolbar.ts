@@ -45,16 +45,31 @@ const DISPLAY_NAMES: Record<string, string> = {
   leader: "Leader",
   insertlib: "Insert from Library",
   savelib: "Save to Library",
+  constrain: "Constrain Distance",
 };
 
 // Matches the desktop app's ui/toolbar.py section order (Draw / Modify /
 // Dimension / File & Library) -- restricted to commands this web port
 // actually has; entries the desktop has but this port doesn't yet (table,
-// linetype, constrain, pdfexport) are simply absent until their features
-// land, not stubbed.
+// linetype, pdfexport) are simply absent until their features land, not
+// stubbed.
 const COMMAND_GROUPS: readonly (readonly string[])[] = [
   ["line", "arc", "rectangle", "circle", "ellipse", "text"],
-  ["move", "copy", "rotate", "polararray", "trim", "offset", "mirror", "fillet", "chamfer", "join", "explode", "scale"],
+  [
+    "move",
+    "copy",
+    "rotate",
+    "polararray",
+    "trim",
+    "offset",
+    "mirror",
+    "fillet",
+    "chamfer",
+    "join",
+    "explode",
+    "scale",
+    "constrain",
+  ],
   ["linear", "aligned", "angular", "diameter", "radius", "leader"],
   ["insertlib", "savelib"],
 ];

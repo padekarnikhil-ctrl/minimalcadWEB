@@ -39,6 +39,8 @@ import type { Engine } from "../engine/engine";
 import type { GripCommand } from "../commands/types";
 import { Text } from "../entities/text";
 import { Dimension } from "../entities/dimension";
+import { constraintAt, constraintLinePoints } from "../core/constraints";
+import type { Constraint } from "../core/constraints";
 
 const COLOR_BACKGROUND = "#1e1e1e";
 const COLOR_GRID = "#2d2d2d";
@@ -47,6 +49,8 @@ const COLOR_WINDOW_SELECT = "rgba(80, 140, 255, 1)";
 const COLOR_CROSSING_SELECT = "rgba(90, 210, 110, 1)";
 const COLOR_SNAP_MARKER = "#ffff00";
 const SNAP_MARKER_SCREEN_SIZE = 9.0;
+const COLOR_CONSTRAINT = "#c586c0";
+const COLOR_CONSTRAINT_ACTIVE = "#ff69ff";
 
 // Screen-pixel movement a pending single-touch point must exceed before it
 // commits to a drag/select (rather than staying eligible to become a tap on
@@ -402,6 +406,7 @@ export class CanvasView {
     // click always re-grabs the already-selected line's grip and clicking
     // the neighboring line to select it becomes impossible from there.
     if (gripHit !== null && (hit === null || hit === gripHit.entity)) {
+      this.engine.activeConstraintId = null;
       const commandName = GRIP_COMMAND_NAMES[gripHit.kind];
       this.engine.commandManager.startCommand(commandName);
       const grip = this.engine.commandManager.currentCommand as GripCommand | null;
@@ -411,6 +416,7 @@ export class CanvasView {
     }
 
     if (hit !== null) {
+      this.engine.activeConstraintId = null;
       this.applySelectionPick(hit, shiftHeld);
       if (!shiftHeld) {
         this.dragEntities = this.engine.selection.getEntities();
@@ -418,10 +424,20 @@ export class CanvasView {
         this.dragMoved = false;
       }
     } else {
-      this.selectOrigin = worldPos;
-      this.selectCurrent = worldPos;
-      this.selectActive = false;
-      this.selectAdditive = shiftHeld;
+      // Only checked once a normal entity/grip hit-test comes up empty, so a
+      // faint constraint line never steals a click away from real geometry
+      // it happens to run alongside (see core/constraints.ts's constraintAt).
+      const constraint = constraintAt(this.engine.document, worldPos, tolerance);
+      if (constraint !== null) {
+        this.engine.selection.clear();
+        this.engine.activeConstraintId = constraint.id;
+      } else {
+        this.engine.activeConstraintId = null;
+        this.selectOrigin = worldPos;
+        this.selectCurrent = worldPos;
+        this.selectActive = false;
+        this.selectAdditive = shiftHeld;
+      }
     }
 
     this.requestRedraw();
@@ -841,6 +857,7 @@ export class CanvasView {
 
     this.drawGrid();
     this.drawEntities();
+    this.drawConstraints();
     this.drawSelectionHighlights();
     this.drawSelectionBox();
     this.engine.commandManager.draw(this.ctx);
@@ -994,6 +1011,36 @@ export class CanvasView {
         entity.draw(this.ctx, this.viewport, false);
       }
     }
+  }
+
+  /** Every distance constraint (core/constraints.ts) as a dashed line from
+   *  its driven point feature to its reference -- the currently-picked one
+   *  (Engine.activeConstraintId, set in runPointerDown's own fallback pick)
+   *  drawn brighter/thicker, matching the desktop app's own selected-
+   *  constraint highlight on graphics/canvas.py. */
+  private drawConstraints(): void {
+    const constraints = this.engine.document.constraints as Constraint[];
+    if (constraints.length === 0) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    for (const constraint of constraints) {
+      const pts = constraintLinePoints(this.engine.document, constraint);
+      if (pts === null) continue;
+      const active = constraint.id === this.engine.activeConstraintId;
+      const [p1, p2] = pts;
+      const a = this.viewport.worldToScreen(p1);
+      const b = this.viewport.worldToScreen(p2);
+
+      ctx.strokeStyle = active ? COLOR_CONSTRAINT_ACTIVE : COLOR_CONSTRAINT;
+      ctx.lineWidth = active ? 2 : 1.2;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawSelectionHighlights(): void {

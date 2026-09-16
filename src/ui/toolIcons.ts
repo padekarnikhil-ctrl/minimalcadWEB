@@ -351,6 +351,18 @@ function drawFolder(ctx: CanvasRenderingContext2D, arrowInto: boolean): void {
 const drawInsertLib: Drawer = (ctx) => drawFolder(ctx, true);
 const drawSaveLib: Drawer = (ctx) => drawFolder(ctx, false);
 
+/** A circle held a fixed distance from a reference wall -- ported from
+ *  ui/tool_icons.py's _draw_constrain(). */
+function drawConstrain(ctx: CanvasRenderingContext2D): void {
+  line(ctx, 3, 3, 3, 17); // reference wall
+  ctx.beginPath();
+  ctx.arc(15, 10, 3, 0, Math.PI * 2); // driven point
+  ctx.stroke();
+  dashed(ctx, () => line(ctx, 5, 10, 11, 10));
+  arrowhead(ctx, 5, 10, 180);
+  arrowhead(ctx, 11, 10, 0);
+}
+
 function drawCloud(ctx: CanvasRenderingContext2D): void {
   ctx.beginPath();
   ctx.arc(7, 12, 4, Math.PI * 0.5, Math.PI * 1.6);
@@ -396,6 +408,7 @@ const DRAWERS: Record<string, Drawer> = {
   insertdrawing: drawInsertDrawing,
   insertlib: drawInsertLib,
   savelib: drawSaveLib,
+  constrain: drawConstrain,
   cloud: drawCloud,
 };
 

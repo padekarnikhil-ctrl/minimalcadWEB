@@ -22,6 +22,7 @@ import { Viewport } from "./viewport";
 import { findSnap } from "./snap";
 import type { CommandBar } from "../ui/commandBar";
 import { CommandManager } from "../commands/manager";
+import type { Constraint } from "../core/constraints";
 
 export interface SnapResult {
   point: Point;
@@ -37,6 +38,15 @@ export class Engine {
   readonly commandManager: CommandManager;
 
   orthoEnabled = false;
+
+  /** The currently-picked distance constraint's id (see core/constraints.ts),
+   *  or null -- a constraint isn't a document entity and has its own
+   *  narrower selection concept (a single id, not a Selection set), matching
+   *  the desktop app's own selected_constraint_id on graphics/canvas.py.
+   *  Read by ui/canvasView.ts (highlighting + pointer-down pick) and
+   *  deleteSelected() below (constraint deletion takes priority over
+   *  entity deletion when one is picked). */
+  activeConstraintId: string | null = null;
 
   /** The last-resolved osnap point/type, updated as a side effect of every
    *  snap() call (mirrors the desktop app's own active_snap_point/
@@ -126,7 +136,23 @@ export class Engine {
     this.requestRedraw();
   }
 
+  /** Erases every currently selected entity from the drawing, with undo
+   *  support -- or, if a constraint line (see core/constraints.ts) is the
+   *  current pick instead, just that one constraint (the entities it
+   *  references are untouched). */
   deleteSelected(): void {
+    if (this.activeConstraintId !== null) {
+      const constraintId = this.activeConstraintId;
+      this.activeConstraintId = null;
+      const constraints = this.document.constraints as Constraint[];
+      if (constraints.some((c) => c.id === constraintId)) {
+        this.undo.push(this.document.toDict());
+        this.document.constraints = constraints.filter((c) => c.id !== constraintId);
+        this.requestRedraw();
+      }
+      return;
+    }
+
     const selected = this.selection.getEntities();
     if (selected.length === 0) return;
 
