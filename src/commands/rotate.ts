@@ -67,12 +67,22 @@ export class RotateCommand extends PickTransformCommand {
   }
 
   mouseMove(worldPos: Point): void {
-    if (this.state !== 2 || this.basePoint === null) return;
-    const { point, snapType } = this.engine.snap(worldPos, this.basePoint);
-    this.currentMousePos = snapType === null ? this.engine.applyOrtho(this.basePoint, point) : point;
+    // Matches the desktop app's own mouse_move: snap previews from the
+    // FIRST point-pick state onward (state 1, "Pick Base Point"), not just
+    // the final angle state -- only state 0 (still choosing which entity to
+    // rotate) has no point to snap toward at all.
+    if (this.state === 0) return;
+    const reference = this.state === 2 ? this.basePoint : null;
+    const { point, snapType } = this.engine.snap(worldPos, reference);
+    this.currentMousePos =
+      this.state === 2 && this.basePoint !== null && snapType === null
+        ? this.engine.applyOrtho(this.basePoint, point)
+        : point;
 
-    const angleDeg = (this.angleTo(this.currentMousePos) * 180) / Math.PI;
-    this.commandBar.setLiveValue(angleDeg.toFixed(1));
+    if (this.state === 2 && this.basePoint !== null) {
+      const angleDeg = (this.angleTo(this.currentMousePos) * 180) / Math.PI;
+      this.commandBar.setLiveValue(angleDeg.toFixed(1));
+    }
     this.engine.requestRedraw();
   }
 

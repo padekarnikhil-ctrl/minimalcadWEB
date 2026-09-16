@@ -86,16 +86,26 @@ export class MirrorCommand extends PickTransformCommand {
   }
 
   mouseMove(worldPos: Point): void {
-    if (this.state !== 2 || this.mirrorP1 === null) return;
-    const { point, snapType } = this.engine.snap(worldPos, this.mirrorP1);
-    this.currentMousePos = snapType === null ? this.engine.applyOrtho(this.mirrorP1, point) : point;
+    // Matches the desktop app's own mouse_move: snap previews from the
+    // FIRST point-pick state onward (state 1, "Pick First Axis Point"), not
+    // just the final second-axis-point state -- only state 0 (still
+    // choosing which entity to mirror) has no point to snap toward at all.
+    if (this.state === 0) return;
+    const reference = this.state === 2 ? this.mirrorP1 : null;
+    const { point, snapType } = this.engine.snap(worldPos, reference);
+    this.currentMousePos =
+      this.state === 2 && this.mirrorP1 !== null && snapType === null
+        ? this.engine.applyOrtho(this.mirrorP1, point)
+        : point;
 
-    const dx = this.currentMousePos.x - this.mirrorP1.x;
-    const dy = this.currentMousePos.y - this.mirrorP1.y;
-    const distance = Math.hypot(dx, dy);
-    const angleDeg = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
-    this.commandBar.setLiveValue(distance.toFixed(2));
-    this.commandBar.setLiveAngle(angleDeg.toFixed(1));
+    if (this.state === 2 && this.mirrorP1 !== null) {
+      const dx = this.currentMousePos.x - this.mirrorP1.x;
+      const dy = this.currentMousePos.y - this.mirrorP1.y;
+      const distance = Math.hypot(dx, dy);
+      const angleDeg = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
+      this.commandBar.setLiveValue(distance.toFixed(2));
+      this.commandBar.setLiveAngle(angleDeg.toFixed(1));
+    }
     this.engine.requestRedraw();
   }
 

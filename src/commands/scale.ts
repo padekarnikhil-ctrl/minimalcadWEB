@@ -122,7 +122,18 @@ export class ScaleCommand extends PickTransformCommand {
   }
 
   mouseMove(worldPos: Point): void {
-    if (this.state !== 2) return;
+    // Matches the desktop app's own mouse_move: state 1 ("Pick Base Point")
+    // gets a snap preview same as any other point-pick; state 2's factor is
+    // a pure screen-distance ratio (see calculateMouseFactor()) and was
+    // never snapped even on the desktop, so only state 0 (still choosing
+    // which entity to scale) is skipped entirely.
+    if (this.state === 0) return;
+    if (this.state === 1) {
+      const { point } = this.engine.snap(worldPos);
+      this.currentMousePos = point;
+      this.engine.requestRedraw();
+      return;
+    }
     this.currentMousePos = worldPos;
     const factor = this.calculateMouseFactor();
     this.commandBar.setLiveValue(factor.toFixed(3));
