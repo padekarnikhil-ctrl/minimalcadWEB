@@ -96,7 +96,9 @@ function midpointOf(a: Point, b: Point): Point {
 export class CanvasView {
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
-  readonly viewport: Viewport;
+  // Not readonly: setActiveSession() repoints both together whenever the
+  // active tab (engine/session.ts) changes -- see that method's own comment.
+  private viewport: Viewport;
   private engine: Engine;
 
   private isPanning = false;
@@ -185,6 +187,46 @@ export class CanvasView {
       this.requestRedraw();
     });
 
+    this.requestRedraw();
+  }
+
+  /**
+   * Repoints this shared CanvasView at a different tab's session
+   * (engine/session.ts) -- called by main.ts whenever the active tab
+   * changes (new/close/switch). `engine`/`viewport` are always the SAME
+   * pair a session was built with (Engine just holds a reference to its own
+   * Viewport), never mixed across sessions, since every pointer-event
+   * coordinate this file computes has to agree with whichever Engine is
+   * about to receive it.
+   *
+   * Discards (rather than migrates) any interaction that was mid-flight on
+   * the OUTGOING tab -- a rubber-band select box, a body drag, an in-flight
+   * touch gesture/point-pick preview -- since none of that state means
+   * anything once it's pointed at a different tab's entities/selection.
+   * Matches Escape's own cleanup in onKeyDown for the same reason: switching
+   * tabs is "abandon whatever gesture was in progress", not "carry it over".
+   */
+  setActiveSession(engine: Engine, viewport: Viewport): void {
+    this.isPanning = false;
+    this.dragEntities = null;
+    this.dragLastPos = null;
+    this.dragMoved = false;
+    this.selectOrigin = null;
+    this.selectCurrent = null;
+    this.selectActive = false;
+    this.selectAdditive = false;
+    this.commandBuffer = "";
+    this.activeTouches.clear();
+    this.pendingTouch = null;
+    this.touchGesture = null;
+    this.touchPointPickPointerId = null;
+    this.touchFingerScreenPos = null;
+    this.touchCursorScreenPos = null;
+    this.pendingCommandCandidate = null;
+    this.pendingCommandTouch = null;
+
+    this.engine = engine;
+    this.viewport = viewport;
     this.requestRedraw();
   }
 

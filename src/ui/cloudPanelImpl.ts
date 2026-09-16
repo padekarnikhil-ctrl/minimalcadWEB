@@ -21,7 +21,7 @@
  * who never touches cloud features shouldn't pay for downloading
  * auth/postgrest/realtime client code at all, and (2) a Vite 5.4.21/Rollup
  * production build was observed to mis-tree-shake toolbar.ts's *unrelated*
- * call sites (clearCurrentCloudDrawing()/initCloudUi()) down to nothing --
+ * call sites (refreshCloudPanel()/initCloudUi()) down to nothing --
  * confirmed by bisection to appear only once supabase-js's ~46-module
  * dependency graph was statically reachable from the same chunk -- and
  * disappear once it was isolated behind a dynamic import() chunk boundary
@@ -41,13 +41,16 @@ import { showToast } from "./toast";
 import { drawIcon } from "./toolIcons";
 
 let currentUser: AuthUser | null = null;
-let currentDrawingId: string | null = null;
-let currentDrawingName = "Untitled";
 
 let panelEl: HTMLDivElement | null = null;
 let cloudButtonEl: HTMLButtonElement | null = null;
 let cloudIconCanvas: HTMLCanvasElement | null = null;
-let engineRef: Engine | null = null;
+// Called fresh at every use (never cached as one fixed Engine) so this panel
+// always reads/writes whichever tab (engine/session.ts) is currently active
+// -- including "which cloud drawing is this tab's Save button tied to",
+// which now lives on the Engine itself (see engine/engine.ts's
+// cloudDrawingId/cloudDrawingName) rather than as module state here.
+let getActiveEngineRef: (() => Engine) | null = null;
 let requestRedrawRef: (() => void) | null = null;
 
 // Same cyan as #command-bar .prompt-label in style.css (the "READY"/status
@@ -55,21 +58,20 @@ let requestRedrawRef: (() => void) | null = null;
 // icon's signed-in indicator always matches it even if that color changes.
 const SIGNED_IN_COLOR = "#00ffff";
 
-/** Called by ui/toolbar.ts whenever the document is replaced by something
- *  other than opening this exact cloud drawing (local Open, DXF Import) --
- *  so a subsequent cloud Save can't silently overwrite an unrelated cloud
- *  drawing's content under its old id. */
-export function clearCurrentCloudDrawing(): void {
-  currentDrawingId = null;
-  currentDrawingName = "Untitled";
+/** Redraws the panel in place if it's currently open -- called by
+ *  cloudPanel.ts's shim after the active tab changes (new/close/switch), so
+ *  an already-open panel picks up the newly-active tab's cloud identity and
+ *  "active" drawing highlight instead of showing the outgoing tab's. */
+export function refreshCloudPanelIfOpen(): void {
+  if (panelEl !== null && !panelEl.hidden) refreshAndRender();
 }
 
 /** Adds a "Cloud" button to the toolbar and builds the (initially hidden)
  *  panel. Called by cloudPanel.ts's shim only after it has already
  *  confirmed Supabase is configured -- see this module's own header
  *  comment for why that check lives there instead of here. */
-export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRedraw: () => void): void {
-  engineRef = engine;
+export function mountCloudUi(toolbarRoot: HTMLElement, getActiveEngine: () => Engine, requestRedraw: () => void): void {
+  getActiveEngineRef = getActiveEngine;
   requestRedrawRef = requestRedraw;
 
   const gapEl = document.createElement("div");
@@ -126,6 +128,10 @@ export function mountCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRe
 
 let cachedDrawings: CloudDrawingSummary[] = [];
 let cachedParts: CloudPartSummary[] = [];
+// Live-filter query for the Parts Library list -- kept across a refreshAndRender()
+// (e.g. after Insert/Rename/Delete) so the search box doesn't silently reset
+// itself out from under whatever the user was in the middle of typing.
+let partsQuery = "";
 
 function refreshAndRender(): void {
   if (currentUser === null) {
@@ -155,17 +161,33 @@ function render(): void {
     return;
   }
 
-  panelEl.appendChild(buildAccountBar(currentUser));
-  panelEl.appendChild(buildSaveBar());
-  panelEl.appendChild(buildDrawingsList());
+  // Fetched fresh on every render() (never cached) so this always reflects
+  // whichever tab is currently active -- see this module's own header
+  // comment on getActiveEngineRef.
+  const engine = getActiveEngineRef!();
+
+  panelEl.appendChild(buildAccountBar(engine, currentUser));
+  panelEl.appendChild(buildSaveBar(engine));
+  panelEl.appendChild(buildDrawingsList(engine));
 
   const partsHeader = document.createElement("div");
   partsHeader.className = "cloud-panel-header";
   partsHeader.textContent = "Parts Library";
   panelEl.appendChild(partsHeader);
 
-  panelEl.appendChild(buildSavePartBar());
-  panelEl.appendChild(buildPartsList());
+  panelEl.appendChild(buildSavePartBar(engine));
+  panelEl.appendChild(buildPartsSearchBar(engine));
+
+  // Held in its own persistent container (rather than rebuilt as part of a
+  // full render()) so typing in the search box above only ever replaces
+  // THIS element's children on each keystroke -- see buildPartsSearchBar's
+  // input handler -- instead of tearing down and rebuilding the search
+  // input itself, which would drop keyboard focus (and the caret) after
+  // every single character typed.
+  partsListEl = document.createElement("div");
+  partsListEl.className = "cloud-panel-section cloud-panel-list";
+  panelEl.appendChild(partsListEl);
+  renderPartsListInto(engine, partsListEl);
 }
 
 function buildAuthForm(): HTMLElement {
@@ -213,7 +235,7 @@ function buildAuthForm(): HTMLElement {
   return form;
 }
 
-function buildAccountBar(user: AuthUser): HTMLElement {
+function buildAccountBar(engine: Engine, user: AuthUser): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "cloud-panel-section cloud-panel-row";
 
@@ -226,7 +248,7 @@ function buildAccountBar(user: AuthUser): HTMLElement {
   signOutBtn.addEventListener("mousedown", (e) => e.preventDefault());
   signOutBtn.addEventListener("click", () => {
     void signOut().then(() => {
-      clearCurrentCloudDrawing();
+      engine.clearCloudDrawing();
       cachedDrawings = [];
     });
   });
@@ -235,40 +257,39 @@ function buildAccountBar(user: AuthUser): HTMLElement {
   return bar;
 }
 
-function buildSaveBar(): HTMLElement {
+function buildSaveBar(engine: Engine): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "cloud-panel-section cloud-panel-row";
 
   const nameInput = document.createElement("input");
   nameInput.type = "text";
-  nameInput.value = currentDrawingName;
+  nameInput.value = engine.cloudDrawingName;
   nameInput.placeholder = "Drawing name";
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = currentDrawingId === null ? "Save to Cloud" : "Save";
+  saveBtn.textContent = engine.cloudDrawingId === null ? "Save to Cloud" : "Save";
   saveBtn.addEventListener("mousedown", (e) => e.preventDefault());
   saveBtn.addEventListener("click", () => {
-    if (engineRef === null) return;
-    const snapshot = engineRef.document.toDict();
+    const snapshot = engine.document.toDict();
     const name = nameInput.value.trim() || "Untitled";
 
     const afterSave = () => {
-      currentDrawingName = name;
+      engine.cloudDrawingName = name;
       showToast(`Saved "${name}" to the cloud.`);
       refreshAndRender();
     };
 
-    if (currentDrawingId === null) {
+    if (engine.cloudDrawingId === null) {
       void createDrawing(name, snapshot).then((result) => {
         if (!result.ok) {
           showToast(`Could not save: ${result.error}`);
           return;
         }
-        currentDrawingId = result.value.id;
+        engine.cloudDrawingId = result.value.id;
         afterSave();
       });
     } else {
-      const id = currentDrawingId;
+      const id = engine.cloudDrawingId;
       void updateDrawing(id, snapshot).then((result) => {
         if (!result.ok) {
           showToast(`Could not save: ${result.error}`);
@@ -276,7 +297,7 @@ function buildSaveBar(): HTMLElement {
         }
         // The name field may have been edited since this drawing was opened
         // -- treat a changed name here as a rename, not a silent no-op.
-        if (name !== currentDrawingName) {
+        if (name !== engine.cloudDrawingName) {
           void renameDrawing(id, name).then(() => afterSave());
         } else {
           afterSave();
@@ -290,16 +311,15 @@ function buildSaveBar(): HTMLElement {
   saveAsNewBtn.title = "Create a new cloud drawing instead of overwriting the current one";
   saveAsNewBtn.addEventListener("mousedown", (e) => e.preventDefault());
   saveAsNewBtn.addEventListener("click", () => {
-    if (engineRef === null) return;
-    const snapshot = engineRef.document.toDict();
+    const snapshot = engine.document.toDict();
     const name = nameInput.value.trim() || "Untitled";
     void createDrawing(name, snapshot).then((result) => {
       if (!result.ok) {
         showToast(`Could not save: ${result.error}`);
         return;
       }
-      currentDrawingId = result.value.id;
-      currentDrawingName = name;
+      engine.cloudDrawingId = result.value.id;
+      engine.cloudDrawingName = name;
       showToast(`Saved "${name}" as a new cloud drawing.`);
       refreshAndRender();
     });
@@ -309,7 +329,7 @@ function buildSaveBar(): HTMLElement {
   return bar;
 }
 
-function buildDrawingsList(): HTMLElement {
+function buildDrawingsList(engine: Engine): HTMLElement {
   const list = document.createElement("div");
   list.className = "cloud-panel-section cloud-panel-list";
 
@@ -322,15 +342,15 @@ function buildDrawingsList(): HTMLElement {
   }
 
   for (const drawing of cachedDrawings) {
-    list.appendChild(buildDrawingRow(drawing));
+    list.appendChild(buildDrawingRow(engine, drawing));
   }
   return list;
 }
 
-function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
+function buildDrawingRow(engine: Engine, drawing: CloudDrawingSummary): HTMLElement {
   const row = document.createElement("div");
   row.className = "cloud-panel-row cloud-panel-drawing-row";
-  if (drawing.id === currentDrawingId) row.classList.add("active");
+  if (drawing.id === engine.cloudDrawingId) row.classList.add("active");
 
   const nameEl = document.createElement("span");
   nameEl.className = "cloud-panel-drawing-name";
@@ -339,20 +359,20 @@ function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
 
   const openBtn = document.createElement("button");
   openBtn.textContent = "Open";
+  openBtn.title = "Replaces this tab's drawing with the selected cloud drawing";
   openBtn.addEventListener("mousedown", (e) => e.preventDefault());
   openBtn.addEventListener("click", () => {
-    if (engineRef === null || requestRedrawRef === null) return;
+    if (requestRedrawRef === null) return;
     void fetchDrawing(drawing.id).then((result) => {
       if (!result.ok) {
         showToast(`Could not open drawing: ${result.error}`);
         return;
       }
-      const engine = engineRef!;
       const parseResult = engine.document.restoreFromDict(result.value.snapshot);
       engine.undo.clear();
       engine.zoomExtents();
-      currentDrawingId = result.value.id;
-      currentDrawingName = result.value.name;
+      engine.cloudDrawingId = result.value.id;
+      engine.cloudDrawingName = result.value.name;
       requestRedrawRef!();
       render();
       if (parseResult.skippedCount > 0) {
@@ -374,7 +394,7 @@ function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
         showToast(`Could not rename: ${result.error}`);
         return;
       }
-      if (drawing.id === currentDrawingId) currentDrawingName = trimmed;
+      if (drawing.id === engine.cloudDrawingId) engine.cloudDrawingName = trimmed;
       refreshAndRender();
     });
   });
@@ -389,7 +409,7 @@ function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
         showToast(`Could not delete: ${result.error}`);
         return;
       }
-      if (drawing.id === currentDrawingId) clearCurrentCloudDrawing();
+      if (drawing.id === engine.cloudDrawingId) engine.clearCloudDrawing();
       refreshAndRender();
     });
   });
@@ -405,7 +425,7 @@ function buildDrawingRow(drawing: CloudDrawingSummary): HTMLElement {
 // io/cloudParts.ts and supabase/migrations/0003_parts.sql), since the
 // browser has no filesystem and this app supports multiple accounts.
 
-function buildSavePartBar(): HTMLElement {
+function buildSavePartBar(engine: Engine): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "cloud-panel-section cloud-panel-row";
 
@@ -418,7 +438,6 @@ function buildSavePartBar(): HTMLElement {
   saveBtn.title = "Saves the current selection, or the whole drawing if nothing is selected";
   saveBtn.addEventListener("mousedown", (e) => e.preventDefault());
   saveBtn.addEventListener("click", () => {
-    if (engineRef === null) return;
     const name = nameInput.value.trim();
     if (name === "") {
       showToast("Enter a name for the part first.");
@@ -427,8 +446,8 @@ function buildSavePartBar(): HTMLElement {
 
     // Matches commands/save_library.py: the current selection if there is
     // one, otherwise the whole document.
-    const selected = engineRef.selection.getEntities();
-    const source = selected.length > 0 ? selected : engineRef.document.getEntities();
+    const selected = engine.selection.getEntities();
+    const source = selected.length > 0 ? selected : engine.document.getEntities();
     if (source.length === 0) {
       showToast("Nothing to save -- the drawing is empty.");
       return;
@@ -450,25 +469,51 @@ function buildSavePartBar(): HTMLElement {
   return bar;
 }
 
-function buildPartsList(): HTMLElement {
-  const list = document.createElement("div");
-  list.className = "cloud-panel-section cloud-panel-list";
+/** The persistent container renderPartsListInto() redraws in place -- see
+ *  render()'s own comment on why this can't just be a fresh element each time. */
+let partsListEl: HTMLDivElement | null = null;
 
-  if (cachedParts.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "cloud-panel-status";
-    empty.textContent = "No saved parts yet.";
-    list.appendChild(empty);
-    return list;
-  }
+function buildPartsSearchBar(engine: Engine): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "cloud-panel-section";
 
-  for (const part of cachedParts) {
-    list.appendChild(buildPartRow(part));
-  }
-  return list;
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.className = "cloud-panel-search";
+  searchInput.placeholder = "Search parts library...";
+  searchInput.value = partsQuery;
+  searchInput.addEventListener("input", () => {
+    partsQuery = searchInput.value;
+    if (partsListEl !== null) renderPartsListInto(engine, partsListEl);
+  });
+
+  bar.appendChild(searchInput);
+  return bar;
 }
 
-function buildPartRow(part: CloudPartSummary): HTMLElement {
+/** Renders the (possibly search-filtered) parts list into an already-mounted
+ *  container -- an empty query shows the full library, unchanged from
+ *  before this search box existed. */
+function renderPartsListInto(engine: Engine, container: HTMLDivElement): void {
+  container.replaceChildren();
+
+  const query = partsQuery.trim().toLowerCase();
+  const filtered = query === "" ? cachedParts : cachedParts.filter((p) => p.name.toLowerCase().includes(query));
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "cloud-panel-status";
+    empty.textContent = cachedParts.length === 0 ? "No saved parts yet." : `No parts match "${partsQuery.trim()}".`;
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const part of filtered) {
+    container.appendChild(buildPartRow(engine, part));
+  }
+}
+
+function buildPartRow(engine: Engine, part: CloudPartSummary): HTMLElement {
   const row = document.createElement("div");
   row.className = "cloud-panel-row cloud-panel-drawing-row";
 
@@ -481,13 +526,11 @@ function buildPartRow(part: CloudPartSummary): HTMLElement {
   insertBtn.title = "Merges this part into the current canvas beside the existing drawing";
   insertBtn.addEventListener("mousedown", (e) => e.preventDefault());
   insertBtn.addEventListener("click", () => {
-    if (engineRef === null) return;
     void fetchPart(part.id).then((result) => {
       if (!result.ok) {
         showToast(`Could not insert part: ${result.error}`);
         return;
       }
-      const engine = engineRef!;
       const { entities: incoming, skippedCount } = parseEntities(result.value.snapshot.entities);
       if (incoming.length === 0) return;
 

@@ -16,7 +16,6 @@
 import type { Engine } from "../engine/engine";
 import { showRestorePrompt } from "./restorePrompt";
 import { showToast } from "./toast";
-import { clearCurrentCloudDrawing } from "./cloudPanel";
 
 const AUTOSAVE_INTERVAL_MS = 30_000;
 
@@ -27,7 +26,15 @@ function isSupabaseConfigured(): boolean {
   );
 }
 
-export function initAutosave(engine: Engine, requestRedraw: () => void): void {
+/**
+ * `getActiveEngine` is called fresh on every tick/visibility-change/restore
+ * (never captured as one fixed Engine) so autosave always follows whichever
+ * tab (engine/session.ts) is currently active -- there's still only ONE
+ * reserved Autosave slot per account (io/autosave.ts), so with several tabs
+ * open it's the active tab's content that occupies it, same as a single-tab
+ * session before multitab existed.
+ */
+export function initAutosave(getActiveEngine: () => Engine, requestRedraw: () => void): void {
   if (!isSupabaseConfigured()) return;
 
   void Promise.all([import("../lib/auth"), import("../io/autosave")]).then(([auth, autosave]) => {
@@ -37,13 +44,14 @@ export function initAutosave(engine: Engine, requestRedraw: () => void): void {
     let offeredRestore = false;
 
     function documentIsEmpty(): boolean {
-      return engine.document.entities.length === 0 && engine.document.constraints.length === 0;
+      const document = getActiveEngine().document;
+      return document.entities.length === 0 && document.constraints.length === 0;
     }
 
     function runAutosave(): void {
       if (!signedIn || saving || documentIsEmpty()) return;
       saving = true;
-      void autosave.writeAutosave(engine.document.toDict()).finally(() => {
+      void autosave.writeAutosave(getActiveEngine().document.toDict()).finally(() => {
         saving = false;
       });
     }
@@ -72,10 +80,11 @@ export function initAutosave(engine: Engine, requestRedraw: () => void): void {
 
         showRestorePrompt(
           () => {
+            const engine = getActiveEngine();
             const parseResult = engine.document.restoreFromDict(result.value!.snapshot);
             engine.undo.clear();
             engine.zoomExtents();
-            clearCurrentCloudDrawing();
+            engine.clearCloudDrawing();
             requestRedraw();
             if (parseResult.skippedCount > 0) {
               showToast(`${parseResult.skippedCount} unsupported entity type(s) were skipped.`);

@@ -12,10 +12,16 @@
 
 import { COMMAND_REGISTRY } from "../commands/registry";
 import type { Engine } from "../engine/engine";
-import { saveDocumentToFile, pickAndReadDocumentFile, exportDxfToFile, pickAndReadDxfFile } from "../io/saveLoad";
+import {
+  saveDocumentToFile,
+  pickAndReadDocumentFile,
+  exportDxfToFile,
+  pickAndReadDxfFile,
+  promptFilename,
+} from "../io/saveLoad";
 import { parseEntities, placeBeside } from "../core/document";
 import { showToast } from "./toast";
-import { initCloudUi, clearCurrentCloudDrawing } from "./cloudPanel";
+import { initCloudUi } from "./cloudPanel";
 import { drawIcon } from "./toolIcons";
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -78,7 +84,13 @@ function displayName(name: string): string {
   return DISPLAY_NAMES[name] ?? name[0]!.toUpperCase() + name.slice(1);
 }
 
-export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: () => void): void {
+/**
+ * `getActiveEngine` is called fresh inside every handler below (never
+ * captured as one fixed Engine) so every button always acts on whichever
+ * tab (engine/session.ts) is currently active -- switching tabs needs no
+ * toolbar rebuild of its own, unlike the per-tab tab strip (ui/tabBar.ts).
+ */
+export function buildToolbar(root: HTMLElement, getActiveEngine: () => Engine, requestRedraw: () => void): void {
   root.innerHTML = "";
 
   for (const group of COMMAND_GROUPS) {
@@ -88,7 +100,7 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       const label = displayName(name);
       const btn = createIconButton(name, `${label} (${entry.aliases[0]!.toUpperCase()})`);
       btn.addEventListener("click", () => {
-        engine.commandManager.startCommand(name);
+        getActiveEngine().commandManager.startCommand(name);
         requestRedraw();
       });
       root.appendChild(btn);
@@ -96,16 +108,20 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
     root.appendChild(gap());
   }
 
-  addUtilityButton(root, "undo", "Undo", () => engine.undoAction());
-  addUtilityButton(root, "redo", "Redo", () => engine.redoAction());
+  addUtilityButton(root, "undo", "Undo", () => getActiveEngine().undoAction());
+  addUtilityButton(root, "redo", "Redo", () => getActiveEngine().redoAction());
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "zoomextents", "Zoom Extents", () => engine.zoomExtents());
+  addUtilityButton(root, "zoomextents", "Zoom Extents", () => getActiveEngine().zoomExtents());
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "save", "Save", () => saveDocumentToFile(engine.document));
+  addUtilityButton(root, "save", "Save", () => {
+    const filename = promptFilename("Save Drawing", "jcad");
+    if (filename === null) return;
+    saveDocumentToFile(getActiveEngine().document, filename);
+  });
   addUtilityButton(root, "open", "Open", () => {
     void pickAndReadDocumentFile().then((result) => {
       if (result === null) return;
@@ -113,10 +129,11 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
         showToast(`Could not open file: ${result.error}`);
         return;
       }
+      const engine = getActiveEngine();
       const parseResult = engine.document.restoreFromDict(result.snapshot);
       engine.undo.clear();
       engine.zoomExtents();
-      clearCurrentCloudDrawing();
+      engine.clearCloudDrawing();
       if (parseResult.skippedCount > 0) {
         showToast(`${parseResult.skippedCount} unsupported entity type(s) were skipped.`);
       }
@@ -133,11 +150,13 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       const { entities: incoming, skippedCount } = parseEntities(result.snapshot.entities);
       if (incoming.length === 0) return;
 
+      const engine = getActiveEngine();
+
       // Unlike Open/Import DXF (which replace the document), this merges
       // into whatever's already on screen -- offset clear of the existing
       // content's bounds so it doesn't land on top of it, matching the
       // desktop app's own Ctrl+A overlay-import (document.py's
-      // placeBeside()). Deliberately does NOT call clearCurrentCloudDrawing():
+      // placeBeside()). Deliberately does NOT call engine.clearCloudDrawing():
       // the current drawing's identity hasn't changed, it just has more in it.
       if (engine.document.getEntities().length > 0) {
         placeBeside(engine.document.getBounds(), incoming);
@@ -155,13 +174,21 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
 
   root.appendChild(gap());
 
-  addUtilityButton(root, "exportdxf", "Export DXF", () => exportDxfToFile(engine.document));
+  // Export PDF (when it lands -- see this file's own header comment on
+  // desktop-only stubs not yet ported) should call promptFilename("Export PDF", "pdf")
+  // the same way, so every downloaded file is always user-named, never a bare timestamp.
+  addUtilityButton(root, "exportdxf", "Export DXF", () => {
+    const filename = promptFilename("Export DXF", "dxf");
+    if (filename === null) return;
+    exportDxfToFile(getActiveEngine().document, filename);
+  });
   addUtilityButton(root, "importdxf", "Import DXF", () => {
     void pickAndReadDxfFile().then((result) => {
       if (result === null) {
         showToast("Could not open file: not a valid DXF file");
         return;
       }
+      const engine = getActiveEngine();
       // Matches Open's full-replace semantics (and the desktop app's own
       // import_dxf(), which repopulates document.entities in place) rather
       // than merging into whatever's currently on screen.
@@ -169,7 +196,7 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
       for (const entity of result.entities) engine.document.addEntity(entity);
       engine.undo.clear();
       engine.zoomExtents();
-      clearCurrentCloudDrawing();
+      engine.clearCloudDrawing();
       requestRedraw();
       if (result.warnings.length > 0) {
         showToast(result.warnings.join(" — "), 8000);
@@ -177,7 +204,7 @@ export function buildToolbar(root: HTMLElement, engine: Engine, requestRedraw: (
     });
   });
 
-  initCloudUi(root, engine, requestRedraw);
+  initCloudUi(root, getActiveEngine, requestRedraw);
 }
 
 /** Builds an icon-only <button> (ui/toolIcons.ts glyph inside, no visible

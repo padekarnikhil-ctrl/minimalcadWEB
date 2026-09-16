@@ -31,20 +31,25 @@ let impl: typeof import("./cloudPanelImpl") | null = null;
 /** No-ops if the cloud panel was never mounted (Supabase unconfigured, or
  *  called before initCloudUi's dynamic import has resolved -- which in
  *  practice never happens, since that import starts synchronously at app
- *  init and any user action fast enough to race it couldn't have a cloud
- *  drawing tracked yet regardless). */
-export function clearCurrentCloudDrawing(): void {
-  impl?.clearCurrentCloudDrawing();
+ *  init and any user action fast enough to race it couldn't have a tab
+ *  switch to react to yet regardless). Call after the active tab changes
+ *  (new/close/switch) so an already-open panel redraws against whichever
+ *  tab's cloud identity/drawings are now current, instead of showing the
+ *  outgoing tab's stale state. */
+export function refreshCloudPanel(): void {
+  impl?.refreshCloudPanelIfOpen();
 }
 
 /** Adds a "Cloud" button to the toolbar and lazily loads the real panel --
  *  a no-op if Supabase isn't configured, so an unconfigured/offline
- *  checkout shows no cloud UI at all rather than a broken one. */
-export function initCloudUi(toolbarRoot: HTMLElement, engine: Engine, requestRedraw: () => void): void {
+ *  checkout shows no cloud UI at all rather than a broken one.
+ *  `getActiveEngine` is called fresh on every use (never cached as one fixed
+ *  Engine) so the panel always acts on whichever tab is currently active. */
+export function initCloudUi(toolbarRoot: HTMLElement, getActiveEngine: () => Engine, requestRedraw: () => void): void {
   if (!isSupabaseConfigured()) return;
 
   void import("./cloudPanelImpl").then((mod) => {
     impl = mod;
-    mod.mountCloudUi(toolbarRoot, engine, requestRedraw);
+    mod.mountCloudUi(toolbarRoot, getActiveEngine, requestRedraw);
   });
 }

@@ -57,6 +57,24 @@ export class Engine {
   activeSnapPoint: Point | null = null;
   activeSnapType: string | null = null;
 
+  /** Which cloud `drawings` row (io/cloudDrawings.ts) this tab's Save button
+   *  currently overwrites, or null if this tab has never been saved to/opened
+   *  from the cloud yet. Lives here (rather than as module-level state in
+   *  ui/cloudPanelImpl.ts, back when only one document could ever be open at
+   *  once) so each tab (engine/session.ts) tracks its own cloud identity
+   *  independently of every other open tab. */
+  cloudDrawingId: string | null = null;
+  cloudDrawingName = "Untitled";
+
+  /** Called whenever this tab's document is replaced by something other than
+   *  opening this exact cloud drawing (local Open, Import DXF, a fresh tab)
+   *  -- so a subsequent cloud Save can't silently overwrite an unrelated
+   *  cloud drawing's content under its old id. */
+  clearCloudDrawing(): void {
+    this.cloudDrawingId = null;
+    this.cloudDrawingName = "Untitled";
+  }
+
   constructor(
     viewport: Viewport,
     commandBar: CommandBar,

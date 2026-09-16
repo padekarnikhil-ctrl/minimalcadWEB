@@ -2,64 +2,112 @@
  * MinimalCAD Web
  * main.ts
  *
- * Phase C entry point: real command architecture (Line, Circle), dynamic
- * input via the CommandBar, and a toolbar -- wires Viewport + CommandBar +
- * Engine + CanvasView together, sharing one Viewport instance between the
- * renderer and the command context.
+ * Entry point: real command architecture (Line, Circle), dynamic input via
+ * the CommandBar, a toolbar, and multitab support -- several independent
+ * drawings (engine/session.ts's TabSession, each its own Engine+Viewport)
+ * can be open at once, switched via the tab strip (ui/tabBar.ts), while
+ * sharing one <canvas>/CommandBar/toolbar/cloud-panel as UI chrome. Every
+ * piece of shared chrome that used to receive one fixed Engine now receives
+ * a `getActiveEngine` callback instead, called fresh on every use, so it
+ * always acts on whichever tab is currently active without needing to be
+ * rebuilt on every tab switch.
  */
 
 import "./style.css";
 import { CanvasView } from "./ui/canvasView";
 import { CommandBar } from "./ui/commandBar";
 import { buildToolbar } from "./ui/toolbar";
+import { buildTabBar } from "./ui/tabBar";
+import type { TabBarHost, TabBar } from "./ui/tabBar";
 import { buildMobileNumpad } from "./ui/mobileNumpad";
 import { initAutosave } from "./ui/autosaveController";
-import { Viewport } from "./engine/viewport";
-import { Engine } from "./engine/engine";
+import { refreshCloudPanel } from "./ui/cloudPanel";
+import { createTabSession } from "./engine/session";
+import type { TabSession } from "./engine/session";
+import type { Engine } from "./engine/engine";
 
-const canvasEl = document.getElementById("cad-canvas");
-if (!(canvasEl instanceof HTMLCanvasElement)) {
+const canvasElOrNull = document.getElementById("cad-canvas");
+if (!(canvasElOrNull instanceof HTMLCanvasElement)) {
   throw new Error("#cad-canvas element not found");
 }
+// Declared type (not just a narrowed union) so closures defined inside
+// later function declarations (newSession() below) don't lose the
+// narrowing TS only retains for values used directly at the narrowing
+// point itself.
+const canvasEl: HTMLCanvasElement = canvasElOrNull;
 const toolbarEl = document.getElementById("toolbar");
 if (toolbarEl === null) throw new Error("#toolbar element not found");
+const tabBarEl = document.getElementById("tab-bar");
+if (tabBarEl === null) throw new Error("#tab-bar element not found");
 const commandBarEl = document.getElementById("command-bar");
 if (commandBarEl === null) throw new Error("#command-bar element not found");
 
-const viewport = new Viewport(
-  () => canvasEl.clientWidth,
-  () => canvasEl.clientHeight,
-);
 const commandBar = new CommandBar(commandBarEl);
 
-// CanvasView's requestRedraw is referenced by Engine before CanvasView exists --
-// both need each other (Engine needs a redraw hook, CanvasView needs Engine's
-// document to render), so this closure defers the actual lookup until first use,
-// by which point `view` below has already been assigned.
+// CanvasView's requestRedraw is referenced by tab sessions before CanvasView
+// exists -- both need each other (a session needs a redraw hook, CanvasView
+// needs a session's document to render), so this closure defers the actual
+// lookup until first use, by which point `view` below has already been
+// assigned. Same deferral pattern as `tabBar` further down.
 let view: CanvasView;
-const engine = new Engine(
-  viewport,
-  commandBar,
-  () => view.requestRedraw(),
-  // Fires on every command start/cancel, from wherever it happens (toolbar,
-  // Escape, a grip command finishing, trim.ts, repeat-last, ...) -- see
-  // CommandManager's own doc comment on this callback. Without this, a touch
-  // point-pick candidate frozen at the end of one command (see
-  // canvasView.ts's aim/confirm doc comment) stayed on screen after that
-  // command ended and got wrongly confirmed as the first point of whatever
-  // command ran next.
-  () => view.discardInFlightTouchPointPick(),
-);
+function requestRedraw(): void {
+  view.requestRedraw();
+}
+// Fires on every command start/cancel, from wherever it happens (toolbar,
+// Escape, a grip command finishing, trim.ts, repeat-last, ...) -- see
+// CommandManager's own doc comment on this callback. Without this, a touch
+// point-pick candidate frozen at the end of one command (see
+// canvasView.ts's aim/confirm doc comment) stayed on screen after that
+// command ended and got wrongly confirmed as the first point of whatever
+// command ran next.
+function onCommandChanged(): void {
+  view.discardInFlightTouchPointPick();
+}
+
+// --- Tab sessions: one TabSession (engine/session.ts) per open drawing.
+// `sessions` + `activeSessionId` are the entire source of truth for which
+// tabs exist and which one is active -- ui/tabBar.ts is a pure view over
+// them, and every other shared UI piece (toolbar, cloud panel, autosave)
+// only ever asks getActiveEngine() rather than holding an Engine of its own. ---
+
+const sessions: TabSession[] = [];
+let activeSessionId = "";
+
+function getActiveSession(): TabSession {
+  const session = sessions.find((s) => s.id === activeSessionId);
+  if (session === undefined) throw new Error("no active tab session");
+  return session;
+}
+
+function getActiveEngine(): Engine {
+  return getActiveSession().engine;
+}
+
+function newSession(): TabSession {
+  return createTabSession(
+    () => canvasEl.clientWidth,
+    () => canvasEl.clientHeight,
+    commandBar,
+    requestRedraw,
+    onCommandChanged,
+  );
+}
+
+// The very first tab -- created up front since CanvasView's constructor
+// (below) needs a concrete Engine/Viewport to render, not just a getter.
+const firstSession = newSession();
+sessions.push(firstSession);
+activeSessionId = firstSession.id;
 
 commandBar.addEventListener("inputSubmitted", (e) => {
-  engine.commandManager.textInput((e as CustomEvent<string>).detail);
+  getActiveEngine().commandManager.textInput((e as CustomEvent<string>).detail);
   // A typed value always wins over a finger still down mid touch point-pick
   // preview -- see canvasView.ts's own doc comment on this method.
   view.discardInFlightTouchPointPick();
   view.requestRedraw();
 });
 commandBar.addEventListener("escapePressed", () => {
-  engine.cancelCommand();
+  getActiveEngine().cancelCommand();
   view.requestRedraw();
 });
 // Drives a live typing preview (e.g. TextCommand's ghost string) -- the
@@ -71,7 +119,7 @@ commandBar.addEventListener("textChanged", () => view.requestRedraw());
 // commandBar.ts's disableInput() doc comment.
 commandBar.addEventListener("inputDisabled", () => canvasEl.focus());
 commandBar.addEventListener("orthoClicked", () => {
-  engine.toggleOrtho();
+  getActiveEngine().toggleOrtho();
 });
 
 // Built before CanvasView so the toolbar's real, final layout (which may
@@ -80,18 +128,106 @@ commandBar.addEventListener("orthoClicked", () => {
 // against it. The ResizeObserver in canvasView.ts's constructor is the
 // actual belt-and-braces fix for any *later* layout-driven size change;
 // this ordering just makes sure the very first sizing is already correct.
-buildToolbar(toolbarEl, engine, () => view.requestRedraw());
+buildToolbar(toolbarEl, getActiveEngine, () => view.requestRedraw());
 
-view = new CanvasView(canvasEl, viewport, engine);
+view = new CanvasView(canvasEl, firstSession.viewport, firstSession.engine);
 
-initAutosave(engine, () => view.requestRedraw());
+initAutosave(getActiveEngine, () => view.requestRedraw());
+
+// --- Tab bar wiring: activate/createNew/close/rename all funnel through
+// here so `sessions`/`activeSessionId` stay the single source of truth. ---
+
+let tabBar: TabBar;
+
+function activateSession(id: string): void {
+  if (id === activeSessionId) return;
+  // Cancels whatever command was running on the OUTGOING tab so it doesn't
+  // leave a stale "pick next point" prompt on a tab that's no longer
+  // visible -- a no-op if that session was just removed by closeSession()
+  // below (already gone from `sessions` by the time this runs).
+  sessions.find((s) => s.id === activeSessionId)?.engine.cancelCommand();
+
+  activeSessionId = id;
+  const session = getActiveSession();
+  view.setActiveSession(session.engine, session.viewport);
+  commandBar.setReady();
+  commandBar.setOrtho(session.engine.orthoEnabled);
+  tabBar.refresh();
+  refreshCloudPanel();
+}
+
+function createNewTab(): void {
+  const session = newSession();
+  sessions.push(session);
+  activateSession(session.id);
+}
+
+/** True if `session`'s content differs from what a Save/cloud-Save would
+ *  currently produce -- reuses Undo's own dirty flag (it's already exactly
+ *  "has anything changed since the last save-equivalent point"), so closing
+ *  a tab with real work in it always confirms first. */
+function hasUnsavedChanges(session: TabSession): boolean {
+  return session.engine.undo.dirty;
+}
+
+function closeSession(id: string): void {
+  const idx = sessions.findIndex((s) => s.id === id);
+  if (idx === -1) return;
+  const session = sessions[idx]!;
+
+  if (hasUnsavedChanges(session) && !window.confirm(`Close "${session.name}"? Unsaved changes will be lost.`)) {
+    return;
+  }
+
+  if (sessions.length === 1) {
+    // Can't close the very last tab -- reset it to a fresh blank drawing
+    // instead, so there's always at least one tab open.
+    session.engine.document.clear();
+    session.engine.undo.clear();
+    session.engine.selection.clear();
+    session.engine.clearCloudDrawing();
+    session.engine.cancelCommand();
+    session.viewport.resetView();
+    view.requestRedraw();
+    tabBar.refresh();
+    refreshCloudPanel();
+    return;
+  }
+
+  sessions.splice(idx, 1);
+  if (id === activeSessionId) {
+    // Activate a neighbor -- the tab immediately before the closed one if
+    // there is one, otherwise whatever's now first.
+    const next = sessions[Math.max(0, idx - 1)]!;
+    activateSession(next.id);
+  } else {
+    tabBar.refresh();
+  }
+}
+
+function renameSession(id: string, name: string): void {
+  const session = sessions.find((s) => s.id === id);
+  if (session === undefined) return;
+  session.name = name;
+  tabBar.refresh();
+}
+
+const tabBarHost: TabBarHost = {
+  getSessions: () => sessions,
+  getActiveId: () => activeSessionId,
+  activate: activateSession,
+  createNew: createNewTab,
+  close: closeSession,
+  rename: renameSession,
+};
+tabBar = buildTabBar(tabBarEl, tabBarHost);
 
 const homeBtn = document.getElementById("home-btn");
 if (homeBtn !== null) {
   // Same focus-steal prevention as toolbar buttons -- see ui/toolbar.ts's
   // preventFocusSteal() doc comment.
   homeBtn.addEventListener("mousedown", (e) => e.preventDefault());
-  homeBtn.addEventListener("click", () => engine.zoomExtents());
+  homeBtn.addEventListener("click", () => getActiveEngine().zoomExtents());
 }
 
 // Touch-only ESC/Enter/Undo/Redo/Delete/Ortho overlay, plus a numeric keypad
@@ -111,10 +247,10 @@ function dispatchSyntheticKey(key: string): void {
 }
 
 const mobileControls: [string, () => void][] = [
-  ["mobile-undo", () => engine.undoAction()],
-  ["mobile-redo", () => engine.redoAction()],
-  ["mobile-delete", () => engine.deleteSelected()],
-  ["mobile-ortho", () => engine.toggleOrtho()],
+  ["mobile-undo", () => getActiveEngine().undoAction()],
+  ["mobile-redo", () => getActiveEngine().redoAction()],
+  ["mobile-delete", () => getActiveEngine().deleteSelected()],
+  ["mobile-ortho", () => getActiveEngine().toggleOrtho()],
   ["mobile-escape", () => dispatchSyntheticKey("Escape")],
   ["mobile-enter", () => dispatchSyntheticKey("Enter")],
 ];
