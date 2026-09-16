@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { makeTestEngine } from "../testUtils/fakeEngine";
 import { Line } from "../entities/line";
 
@@ -19,6 +19,16 @@ function bracketSnapshot() {
 beforeEach(() => {
   mockListParts.mockReset();
   mockFetchPart.mockReset();
+  // InsertLibCommand checks isSupabaseConfigured() before doing anything --
+  // stub it present regardless of whether this machine/CI actually has a
+  // .env.local (a real local dev file, gitignored, that a fresh CI
+  // checkout never has -- these tests must not depend on it either way).
+  vi.stubEnv("VITE_SUPABASE_URL", "https://test.supabase.co");
+  vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("InsertLibCommand", () => {
