@@ -47,6 +47,17 @@ const PAGE_HEIGHT_PT = 210.0 * POINTS_PER_MM;
 
 const PRINT_LINE_WEIGHT_MM = 0.25; // target physical stroke width for exported geometry, matching file_io/pdf.py
 const MIN_PRINT_TEXT_MM = 1.2; // legibility floor -- see file_io/pdf.py's identical constant
+
+// Fit-mode-only ceiling on resolved text size -- NOT part of file_io/pdf.py
+// (confirmed by running that exact code: a Text/Dimension authored well
+// above TEXT_SCALE_ANCHOR_WORLD -- a deliberately large title, or a
+// Dimension with a large per-instance `scale` -- has no upper bound there
+// either, so its "fit" print size grows proportionally without limit and
+// can overlap neighboring labels once the drawing's own extent forces a
+// small fit scale. 1:1 mode is deliberately NOT capped: there, mm IS the
+// literal world size by definition, so an oversized result there is the
+// user's own explicit real-world sizing, not a runaway computation.
+const MAX_PRINT_TEXT_MM = 8.0;
 const TEXT_SCALE_ANCHOR_WORLD = 3.5; // entities/text.ts's DEFAULT_HEIGHT and entities/dimension.ts's TEXT_HEIGHT
 const FIT_TEXT_HEIGHT_MM = 2.5; // what TEXT_SCALE_ANCHOR_WORLD prints as in "fit" mode
 
@@ -182,6 +193,7 @@ class PdfCanvasContext {
   constructor(
     private readonly scale: number, // world -> page-point scale (this export's fake Viewport.zoom)
     private readonly mmPerWorldUnit: number, // font-size resolution factor -- see exportPdf()'s scale_mode handling
+    private readonly maxTextMm: number | null, // fit-mode-only overlap guard -- see MAX_PRINT_TEXT_MM's own comment
   ) {}
 
   // --- Transform stack ---
@@ -224,15 +236,22 @@ class PdfCanvasContext {
    *  before assigning `ctx.font`, and this shim's Viewport IS `this.scale`),
    *  then resolves that to a real, fixed physical point size -- proportional
    *  to `mmPerWorldUnit` (1.0 for a true 1:1 mm export, or a fixed ratio
-   *  anchored on TEXT_SCALE_ANCHOR_WORLD for a fit-to-page export), clamped
+   *  anchored on TEXT_SCALE_ANCHOR_WORLD for a fit-to-page export), floored
    *  to MIN_PRINT_TEXT_MM so a tiny/degenerate source height never collapses
-   *  to unreadable print output. Exact analogue of file_io/pdf.py's
-   *  _resolve_point_size, just starting from a different representation
-   *  (Canvas bakes the scale into the px size it hands the context; Qt's
-   *  font point size never had it baked in to begin with). */
+   *  to unreadable print output. Otherwise the exact analogue of
+   *  file_io/pdf.py's _resolve_point_size, just starting from a different
+   *  representation (Canvas bakes the scale into the px size it hands the
+   *  context; Qt's font point size never had it baked in to begin with) --
+   *  EXCEPT for `maxTextMm`, which that Python source doesn't have: without
+   *  it, a Text/Dimension authored well above TEXT_SCALE_ANCHOR_WORLD prints
+   *  proportionally larger with no ceiling, and once a drawing's own extent
+   *  forces a small fit scale, that oversized label can swallow whatever
+   *  else is nearby (confirmed against the desktop app directly -- this
+   *  isn't a porting gap, it's a real bug in the shared algorithm). */
   private resolvedFontSizePt(): number {
     const worldSize = this.lastFontPx / (this.scale || 1);
-    const mm = Math.max(worldSize * this.mmPerWorldUnit, MIN_PRINT_TEXT_MM);
+    let mm = Math.max(worldSize * this.mmPerWorldUnit, MIN_PRINT_TEXT_MM);
+    if (this.maxTextMm !== null) mm = Math.min(mm, this.maxTextMm);
     return mm * POINTS_PER_MM;
   }
 
@@ -465,7 +484,8 @@ export function exportPdf(document: Document, windowRect: Bounds | null, scaleMo
   viewport.panOffset = { x: offsetX - paddedMinX * scale, y: offsetY - paddedMinY * scale };
 
   const mmPerWorldUnit = scaleMode === "1:1" ? 1.0 : FIT_TEXT_HEIGHT_MM / TEXT_SCALE_ANCHOR_WORLD;
-  const pdfCtx = new PdfCanvasContext(scale, mmPerWorldUnit);
+  const maxTextMm = scaleMode === "1:1" ? null : MAX_PRINT_TEXT_MM;
+  const pdfCtx = new PdfCanvasContext(scale, mmPerWorldUnit, maxTextMm);
 
   pageHeightForFlip = PAGE_HEIGHT_PT;
   const winP0 = flipY(viewport.worldToScreen({ x: winMinX, y: winMinY }));
