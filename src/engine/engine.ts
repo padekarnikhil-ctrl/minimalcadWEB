@@ -23,6 +23,7 @@ import { findSnap } from "./snap";
 import type { CommandBar } from "../ui/commandBar";
 import { CommandManager } from "../commands/manager";
 import type { Constraint } from "../core/constraints";
+import { QuickEditController } from "./quickEdit";
 
 export interface SnapResult {
   point: Point;
@@ -36,6 +37,7 @@ export class Engine {
   readonly viewport: Viewport;
   readonly commandBar: CommandBar;
   readonly commandManager: CommandManager;
+  readonly quickEdit: QuickEditController;
 
   orthoEnabled = false;
 
@@ -64,6 +66,7 @@ export class Engine {
     this.viewport = viewport;
     this.commandBar = commandBar;
     this.commandManager = new CommandManager(this, onCommandChanged);
+    this.quickEdit = new QuickEditController(this);
   }
 
   requestRedraw(): void {
@@ -161,6 +164,7 @@ export class Engine {
       this.document.removeEntity(entity);
     }
     this.selection.clear();
+    this.quickEdit.refreshStatus();
     this.requestRedraw();
   }
 }

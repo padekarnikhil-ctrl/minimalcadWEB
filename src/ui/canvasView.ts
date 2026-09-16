@@ -430,6 +430,7 @@ export class CanvasView {
       const constraint = constraintAt(this.engine.document, worldPos, tolerance);
       if (constraint !== null) {
         this.engine.selection.clear();
+        this.engine.quickEdit.refreshStatus();
         this.engine.activeConstraintId = constraint.id;
       } else {
         this.engine.activeConstraintId = null;
@@ -454,6 +455,7 @@ export class CanvasView {
       this.engine.selection.clear();
       this.engine.selection.select(entity);
     }
+    this.engine.quickEdit.refreshStatus();
   }
 
   private runPointerMove(worldPos: Point): void {
@@ -497,6 +499,7 @@ export class CanvasView {
         this.finishBoxSelect();
       } else if (!this.selectAdditive) {
         this.engine.selection.clear();
+        this.engine.quickEdit.refreshStatus();
       }
       this.selectOrigin = null;
       this.selectCurrent = null;
@@ -772,6 +775,7 @@ export class CanvasView {
         : ex0 <= x1 && ex1 >= x0 && ey0 <= y1 && ey1 >= y0; // crossing: any overlap
       if (hit) this.engine.selection.select(entity);
     }
+    this.engine.quickEdit.refreshStatus();
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -793,6 +797,7 @@ export class CanvasView {
       this.dragLastPos = null;
       this.dragMoved = false;
       this.engine.commandBar.setReady();
+      this.engine.quickEdit.refreshStatus();
       e.preventDefault();
       this.requestRedraw();
       return;
@@ -812,16 +817,19 @@ export class CanvasView {
       return;
     }
 
-    if (e.key === "Delete" || (e.key === "Backspace" && this.commandBuffer === "")) {
-      this.engine.deleteSelected();
-      e.preventDefault();
-      this.requestRedraw();
-      return;
-    }
+    // READY state: no command owns the keyboard, so plain keystrokes build a
+    // typed command-line entry -- unless exactly one Line/Text is selected,
+    // in which case digits/math instead feed a live length/size quick-edit
+    // buffer (see engine/quickEdit.ts). Checked ahead of the plain typed-
+    // command buffer and Delete handling below, matching graphics/canvas.py's
+    // own keyPressEvent ordering.
+    const quickEditTarget = this.engine.quickEdit.target();
 
     if (e.key === "Enter") {
       e.preventDefault();
-      if (this.commandBuffer !== "") {
+      if (quickEditTarget !== null && this.engine.quickEdit.hasBuffer()) {
+        this.engine.quickEdit.submit(quickEditTarget);
+      } else if (this.commandBuffer !== "") {
         this.engine.commandManager.tryStartFromText(this.commandBuffer);
         this.commandBuffer = "";
       } else {
@@ -830,12 +838,31 @@ export class CanvasView {
       this.requestRedraw();
       return;
     }
+
+    if (e.key === "Backspace" && quickEditTarget !== null && this.engine.quickEdit.backspace(quickEditTarget)) {
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === "Backspace" && this.commandBuffer !== "") {
       this.commandBuffer = this.commandBuffer.slice(0, -1);
       this.engine.commandBar.setTypedCommand(this.commandBuffer);
       e.preventDefault();
       return;
     }
+
+    if (e.key === "Delete" || e.key === "Backspace") {
+      this.engine.deleteSelected();
+      e.preventDefault();
+      this.requestRedraw();
+      return;
+    }
+
+    if (quickEditTarget !== null && this.engine.quickEdit.handleChar(e.key, quickEditTarget)) {
+      e.preventDefault();
+      return;
+    }
+
     if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
       this.commandBuffer += e.key.toLowerCase();
       this.engine.commandBar.setTypedCommand(this.commandBuffer);
