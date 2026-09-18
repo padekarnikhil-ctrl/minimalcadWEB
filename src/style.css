@@ -35,12 +35,18 @@ body {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  /* NOT `center`: once content overflows, some engines only "safe-align"
-     (fall back to start) for newer alignment values -- plain `center` on
-     an overflowing flex row can leave the START of the content (here, the
-     Line tool button) scrolled-off and unreachable even with a working
-     scrollbar. `flex-start` has no such ambiguity. */
-  justify-content: flex-start;
+  /* Centered on a desktop window wide enough to show every button (the
+     common case, and the look this had before any of this session's
+     narrow-screen fixes) -- but plain `center` on an OVERFLOWING flex row
+     can leave the START of the content (the Line tool button) scrolled off
+     and unreachable even with a working scrollbar, which is the exact
+     clipping bug this session chased down on a real tablet. `safe center`
+     (CSS Box Alignment) is precisely this: center when it fits, fall back
+     to start-aligned the moment it doesn't. The plain `center` line is a
+     fallback for browsers that don't understand `safe` yet -- it'll get
+     overridden by the `safe center` line below wherever that's supported. */
+  justify-content: center;
+  justify-content: safe center;
   gap: 2px;
   padding: 4px 8px;
   background: #252526;
