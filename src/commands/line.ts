@@ -12,7 +12,8 @@ import type { Point } from "../core/types";
 import type { Engine } from "../engine/engine";
 import { BaseCommand } from "./base";
 import { Line } from "../entities/line";
-import { parsePoint } from "../input/dynamicInput";
+import { evalNumber, parsePoint } from "../input/dynamicInput";
+import { drawAngleReferenceAxis, drawPolarTrackingRay } from "../ui/dynamicInputOverlay";
 
 export class LineCommand extends BaseCommand {
   private state: 0 | 1 = 0;
@@ -79,13 +80,17 @@ export class LineCommand extends BaseCommand {
 
     if (this.state !== 1 || this.startPoint === null) return;
 
-    const distance = Math.hypot(
-      this.currentMousePos.x - this.startPoint.x,
-      this.currentMousePos.y - this.startPoint.y,
-    );
-    const angleDeg = (this.currentAngle() * 180) / Math.PI;
+    const dx = this.currentMousePos.x - this.startPoint.x;
+    const dy = this.currentMousePos.y - this.startPoint.y;
+    const distance = Math.hypot(dx, dy);
+    // Unsigned deviation from the horizontal reference axis (drawn in
+    // draw()), in [0, 180]: folds "above" and "below" the axis onto the
+    // same reading (Math.abs(dy)) instead of one side wrapping around to a
+    // 300s-looking complement -- the ghost line itself already shows which
+    // side you're on, so the number never needs a sign either way.
+    const displayAngleDeg = (Math.atan2(Math.abs(dy), dx) * 180) / Math.PI;
     this.commandBar.setLiveValue(distance.toFixed(2));
-    this.commandBar.setLiveAngle(angleDeg.toFixed(1));
+    this.commandBar.setLiveAngle(displayAngleDeg.toFixed(1));
     this.engine.requestRedraw();
   }
 
@@ -102,7 +107,7 @@ export class LineCommand extends BaseCommand {
       this.commandBar.setStatus("LINE", "Pick Next Point (Tab: Distance -> Angle, Enter to commit)");
       this.commandBar.enableDualInput("0.00", "0.0");
     } else {
-      const point = parsePoint(text, this.startPoint, this.currentAngle());
+      const point = this.resolveTypedNextPoint(text);
       if (point === null) {
         this.commandBar.setStatus("LINE", "Invalid - use x,y, dist<angle, or a bare distance");
         return;
@@ -111,10 +116,34 @@ export class LineCommand extends BaseCommand {
     }
   }
 
+  /**
+   * The live angle readout (mouseMove()) is an unsigned magnitude off the
+   * horizontal reference axis, not a signed bearing -- committing it as-is
+   * via Enter (dual-input's "dist<angle" grammar) would always resolve to
+   * the same side regardless of which one the ghost line was actually
+   * showing. Applying the CURRENT drag side (above/below that axis) to a
+   * bare "dist<angle" submission's angle fixes that; anything else (x,y,
+   * a bare distance) parses unchanged.
+   */
+  private resolveTypedNextPoint(text: string): Point | null {
+    const t = text.trim();
+    const sepIdx = t.indexOf("<");
+    if (sepIdx !== -1 && this.startPoint !== null && this.currentMousePos !== null) {
+      const angleMag = evalNumber(t.slice(sepIdx + 1));
+      if (angleMag !== null) {
+        const side = this.currentMousePos.y < this.startPoint.y ? -1 : 1;
+        return parsePoint(`${t.slice(0, sepIdx)}<${angleMag * side}`, this.startPoint, this.currentAngle());
+      }
+    }
+    return parsePoint(t, this.startPoint, this.currentAngle());
+  }
+
   draw(ctx: CanvasRenderingContext2D): void {
     if (this.state !== 1 || this.startPoint === null || this.currentMousePos === null) return;
+    drawAngleReferenceAxis(ctx, this.engine.viewport, this.startPoint);
     const ghost = new Line(this.startPoint, this.currentMousePos);
     ghost.draw(ctx, this.engine.viewport, true);
+    drawPolarTrackingRay(ctx, this.engine.viewport, this.startPoint, this.currentMousePos);
   }
 
   cancel(): void {

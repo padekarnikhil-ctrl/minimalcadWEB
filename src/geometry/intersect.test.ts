@@ -3,6 +3,7 @@ import { findIntersections, inAngularSpan, lineLineIntersection } from "./inters
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 
 describe("lineLineIntersection", () => {
   it("finds the crossing point of two intersecting segments", () => {
@@ -60,6 +61,49 @@ describe("findIntersections", () => {
     const c1 = new Circle({ x: 0, y: 0 }, 5);
     const c2 = new Circle({ x: 100, y: 100 }, 5);
     expect(findIntersections(c1, c2, 5)).toHaveLength(0);
+  });
+
+  it("Line vs Ellipse: two crossing points on an axis-aligned ellipse", () => {
+    const line = new Line({ x: -30, y: 0 }, { x: 30, y: 0 });
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10);
+    const pts = findIntersections(line, ellipse, 0);
+    expect(pts).toHaveLength(2);
+    expect(pts.some((p) => Math.abs(p.x - -20) < 1e-6 && Math.abs(p.y) < 1e-6)).toBe(true);
+    expect(pts.some((p) => Math.abs(p.x - 20) < 1e-6 && Math.abs(p.y) < 1e-6)).toBe(true);
+  });
+
+  it("Line vs Ellipse: intersection outside a partial ellipse's own span is excluded", () => {
+    const line = new Line({ x: -30, y: 0 }, { x: 30, y: 0 }); // crosses full ellipse at (+-20, 0)
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10, 0, Math.PI / 4, (3 * Math.PI) / 4); // top only
+    expect(findIntersections(line, ellipse, 0)).toHaveLength(0);
+  });
+
+  it("Circle vs Ellipse: finds the crossing points of an overlapping pair", () => {
+    const circle = new Circle({ x: 0, y: 0 }, 15);
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10);
+    const pts = findIntersections(circle, ellipse, 0);
+    expect(pts.length).toBeGreaterThanOrEqual(2);
+    for (const p of pts) {
+      expect(Math.hypot(p.x, p.y)).toBeCloseTo(15, 2);
+      expect((p.x / 20) ** 2 + (p.y / 10) ** 2).toBeCloseTo(1, 2);
+    }
+  });
+
+  it("Ellipse vs Ellipse: finds crossing points of two overlapping ellipses", () => {
+    const e1 = new Ellipse({ x: -5, y: 0 }, 15, 8);
+    const e2 = new Ellipse({ x: 5, y: 0 }, 15, 8);
+    const pts = findIntersections(e1, e2, 0);
+    expect(pts.length).toBeGreaterThanOrEqual(2);
+    for (const p of pts) {
+      expect(e1.implicitValue(p)).toBeCloseTo(0, 2);
+      expect(e2.implicitValue(p)).toBeCloseTo(0, 2);
+    }
+  });
+
+  it("Ellipse vs Ellipse: no intersection when far apart", () => {
+    const e1 = new Ellipse({ x: 0, y: 0 }, 5, 3);
+    const e2 = new Ellipse({ x: 500, y: 500 }, 5, 3);
+    expect(findIntersections(e1, e2, 0)).toHaveLength(0);
   });
 });
 

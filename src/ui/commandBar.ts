@@ -3,10 +3,10 @@
  * ui/commandBar.ts
  *
  * Ported from ui/command_bar.py's CommandBar as closely as possible --
- * including the dual-field Distance/Angle dynamic-input mode and the
- * two-stage Tab-freeze-then-select behavior (tuned in the desktop app this
- * same session), since the user explicitly wants that behavior carried over
- * faithfully rather than redesigned.
+ * including the dual-field Distance/Angle dynamic-input mode. Tab moves
+ * between the Distance/Angle fields in a single press, locking whichever
+ * field it was pressed in and selecting the other for overtyping (see
+ * handleTab()).
  *
  * Uses the DOM's native EventTarget/CustomEvent as the zero-dependency
  * analogue of Qt's Signals.
@@ -36,6 +36,17 @@ export class CommandBar extends EventTarget {
   private dualMode = false;
   private fieldLocked = false;
   private angleLocked = false;
+  private tooltipPagePos: { x: number; y: number } | null = null;
+  // Every command's mouseMove() only calls setLiveValue()/setLiveAngle()
+  // once it actually HAS a reference point to measure a distance/angle
+  // from (e.g. Line's "pick first point" step returns before either call --
+  // see line.ts's mouseMove()); enableInput()/enableDualInput() themselves
+  // fire at "pick first point" too, though, with no live value yet. Gating
+  // the tooltip on this instead of just "!inputField.disabled" is what
+  // keeps it hidden during that first pick, for every command uniformly,
+  // rather than popping up with an empty/meaningless reading immediately
+  // on selecting the tool.
+  private hasLiveValue = false;
 
   // Live-filtering suggestion popup (ui/command_bar.py's suggestions_list),
   // used by commands/insertLib.ts. Owned entirely here, same as every other
@@ -46,6 +57,18 @@ export class CommandBar extends EventTarget {
   private suggestionsList: HTMLDivElement;
   private suggestionNames: string[] = [];
   private suggestionIndex = -1;
+
+  // AutoCAD-style floating dynamic-input readout: a pointer-events:none
+  // clone of the distance/angle text that tracks the cursor over the
+  // canvas, drawn via CSS `position: fixed` in page coordinates (so it isn't
+  // clipped by the docked command-bar's own layout). Purely a visual mirror
+  // of the real (still-focused, still-docked) inputField/angleField below --
+  // typing, Tab, and Enter all keep working exactly as before since nothing
+  // about focus or event wiring changes.
+  private tooltipEl: HTMLDivElement;
+  private tooltipValue: HTMLSpanElement;
+  private tooltipAngleMarker: HTMLSpanElement;
+  private tooltipAngle: HTMLSpanElement;
 
   constructor(root: HTMLElement) {
     super();
@@ -81,6 +104,21 @@ export class CommandBar extends EventTarget {
     this.suggestionsList.hidden = true;
     this.root.append(this.suggestionsList);
 
+    this.tooltipEl = document.createElement("div");
+    this.tooltipEl.id = "dynamic-input-tooltip";
+    this.tooltipValue = document.createElement("span");
+    this.tooltipValue.className = "dit-value";
+    this.tooltipAngleMarker = document.createElement("span");
+    this.tooltipAngleMarker.className = "dit-angle-marker";
+    this.tooltipAngleMarker.textContent = " ∠ ";
+    this.tooltipAngle = document.createElement("span");
+    this.tooltipAngle.className = "dit-angle";
+    this.tooltipEl.append(this.tooltipValue, this.tooltipAngleMarker, this.tooltipAngle);
+    // Lives on <body>, not `root` (the docked bottom bar) -- `position:
+    // fixed` needs page coordinates, and a descendant of the docked bar
+    // would also inherit its stacking/clipping context.
+    document.body.append(this.tooltipEl);
+
     this.root.append(
       this.promptLabel,
       this.inputField,
@@ -110,6 +148,44 @@ export class CommandBar extends EventTarget {
     } else {
       this.promptLabel.textContent = "READY  —  Press ? for Help";
     }
+    this.renderTooltip();
+  }
+
+  /**
+   * Moves the floating AutoCAD-style dynamic-input readout to follow the
+   * cursor, in page coordinates (e.g. straight from a PointerEvent's
+   * clientX/clientY -- NOT canvas-local coordinates, since the tooltip is
+   * `position: fixed`). Pass null while the pointer is off-canvas (e.g. on
+   * "mouseleave") to hide it; it's also hidden automatically whenever the
+   * input field itself is disabled (no command awaiting a value).
+   */
+  setTooltipPosition(pagePos: { x: number; y: number } | null): void {
+    this.tooltipPagePos = pagePos;
+    this.renderTooltip();
+  }
+
+  private renderTooltip(): void {
+    const active = !this.inputField.disabled && this.tooltipPagePos !== null && this.hasLiveValue;
+    this.tooltipEl.classList.toggle("visible", active);
+    if (!active) return;
+
+    this.tooltipValue.textContent = this.inputField.value;
+    this.tooltipAngleMarker.classList.toggle("visible", this.dualMode);
+    this.tooltipAngle.classList.toggle("visible", this.dualMode);
+    if (this.dualMode) this.tooltipAngle.textContent = `${this.angleField.value}°`;
+
+    // Highlights whichever field currently has real DOM focus -- without
+    // this, Tab moving focus from Distance to Angle (verified working on
+    // the docked fields themselves) is invisible on this floating mirror,
+    // since it otherwise renders both fields identically regardless of
+    // which one a keystroke would actually land in.
+    const angleIsActive = this.dualMode && document.activeElement === this.angleField;
+    this.tooltipValue.classList.toggle("dit-active", !angleIsActive);
+    this.tooltipAngle.classList.toggle("dit-active", angleIsActive);
+
+    const OFFSET = 18;
+    this.tooltipEl.style.left = `${this.tooltipPagePos!.x + OFFSET}px`;
+    this.tooltipEl.style.top = `${this.tooltipPagePos!.y + OFFSET}px`;
   }
 
   enableInput(mode: InputMode = "numeric"): void {
@@ -117,14 +193,17 @@ export class CommandBar extends EventTarget {
     this.inputField.inputMode = mode === "text" ? "text" : "none";
     this.inputField.focus();
     this.fieldLocked = false;
+    this.hasLiveValue = false;
     // Lets a touch-only numeric keypad overlay show/hide itself purely off
     // this, with no separate device/mode tracking of its own -- see
     // ui/mobileNumpad.ts.
     this.dispatchEvent(new CustomEvent("inputModeChanged", { detail: { mode } }));
+    this.renderTooltip();
   }
 
   disableInput(): void {
     this.inputField.disabled = true;
+    this.hasLiveValue = false;
     this.inputField.blur();
     // blur() alone hands focus to <body> (nothing else claims it), silently
     // breaking canvas keyboard routing -- Escape-to-cancel, Delete, and
@@ -133,6 +212,7 @@ export class CommandBar extends EventTarget {
     // canvas reference, matching this class's canvas-agnostic design; see
     // main.ts's listener.
     this.dispatchEvent(new CustomEvent("inputDisabled"));
+    this.renderTooltip();
   }
 
   clear(): void {
@@ -198,6 +278,7 @@ export class CommandBar extends EventTarget {
     this.angleMarker.classList.add("visible");
     this.angleLocked = false;
     this.dualMode = true;
+    this.renderTooltip();
   }
 
   disableDualInput(): void {
@@ -205,6 +286,7 @@ export class CommandBar extends EventTarget {
     this.angleField.classList.remove("visible");
     this.angleMarker.classList.remove("visible");
     this.angleField.value = "";
+    this.renderTooltip();
   }
 
   // --- Mobile numeric keypad support (ui/mobileNumpad.ts) ---
@@ -263,10 +345,14 @@ export class CommandBar extends EventTarget {
 
   setLiveValue(text: string): void {
     if (!this.fieldLocked) this.inputField.value = text;
+    this.hasLiveValue = true;
+    this.renderTooltip();
   }
 
   setLiveAngle(text: string): void {
     if (this.dualMode && !this.angleLocked) this.angleField.value = text;
+    this.hasLiveValue = true;
+    this.renderTooltip();
   }
 
   setSnap(snapType: string | null): void {
@@ -294,12 +380,33 @@ export class CommandBar extends EventTarget {
     // overridden -- the JS equivalent of QTimer.singleShot(0, selectAll).
     field.addEventListener("focus", () => {
       setTimeout(() => field.select(), SELECT_DEFER_MS);
+      this.renderTooltip(); // updates which field the floating mirror highlights
     });
     field.addEventListener("mousedown", () => {
       setTimeout(() => field.select(), SELECT_DEFER_MS);
     });
 
-    field.addEventListener("input", () => onEdited(field.value));
+    field.addEventListener("input", () => {
+      onEdited(field.value);
+      this.renderTooltip();
+    });
+
+    // The select-all-on-focus above only fires once, at focus time -- every
+    // setLiveValue()/setLiveAngle() call after that (i.e. every mouse move
+    // while the field is still showing its live-computed default, not yet
+    // locked) overwrites `.value` directly, which silently collapses
+    // whatever selection was there. Without this, the FIRST real keystroke
+    // typed after the mouse has moved even once lands as a plain caret
+    // insertion into the stale live value (appending "5" to "45.00" instead
+    // of replacing it) rather than the overtype the focus-time select() was
+    // meant to guarantee. Clearing here, on keydown, runs before the
+    // browser's own default action inserts the character.
+    field.addEventListener("keydown", (e) => {
+      const locked = this.isFieldLocked(field);
+      if (!locked && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        field.value = "";
+      }
+    });
 
     field.addEventListener("keydown", (e) => this.onFieldKeyDown(field, e));
   }
@@ -383,13 +490,11 @@ export class CommandBar extends EventTarget {
   }
 
   /**
-   * Two-stage per field, always starting on whichever field Tab was pressed
-   * in: the FIRST Tab while a field is still live-updating (not yet locked)
-   * just grabs it -- freezes further mouse-driven overwrites and selects its
-   * text for overtyping, without moving focus away. Only a SECOND Tab
-   * (pressed once that field is already locked) advances to the other
-   * field. Without this two-stage split, Tab jumps straight from Distance to
-   * Angle on the very first press, with no chance to grab/overtype Distance.
+   * A single Tab press locks whichever field it was pressed in (freezing
+   * further mouse-driven overwrites there) AND moves focus straight to the
+   * other field in dual mode, pre-selected for overtyping -- matching a
+   * single-press field-cycling readout rather than requiring a second Tab
+   * just to leave the first field.
    */
   private handleTab(field: HTMLInputElement): void {
     if (!this.dualMode) {
@@ -399,19 +504,12 @@ export class CommandBar extends EventTarget {
     }
 
     const onDistance = field === this.inputField;
-    const thisLocked = onDistance ? this.fieldLocked : this.angleLocked;
+    if (onDistance) this.fieldLocked = true;
+    else this.angleLocked = true;
 
-    if (!thisLocked) {
-      if (onDistance) this.fieldLocked = true;
-      else this.angleLocked = true;
-      field.select();
-    } else {
-      const other = onDistance ? this.angleField : this.inputField;
-      if (onDistance) this.angleLocked = true;
-      else this.fieldLocked = true;
-      other.focus();
-      other.select();
-    }
+    const other = onDistance ? this.angleField : this.inputField;
+    other.focus();
+    other.select();
   }
 
   private submit(): void {

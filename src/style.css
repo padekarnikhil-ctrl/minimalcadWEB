@@ -436,6 +436,55 @@ body {
   font-weight: bold;
 }
 
+/* Floating AutoCAD-style dynamic-input readout -- see ui/commandBar.ts's
+   setTooltipPosition()/renderTooltip(). Lives on <body>, not #command-bar,
+   so `position: fixed` places it directly under the cursor rather than
+   inside the docked bottom bar's own layout/clipping. */
+#dynamic-input-tooltip {
+  position: fixed;
+  z-index: 50;
+  display: none;
+  pointer-events: none;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  background: rgba(37, 37, 38, 0.92);
+  border: 1px solid #555555;
+  border-radius: 3px;
+  padding: 3px 6px;
+  color: #d4d4d4;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+#dynamic-input-tooltip.visible {
+  display: block;
+}
+
+#dynamic-input-tooltip .dit-value {
+  color: #ffffff;
+  padding: 0 3px;
+}
+
+#dynamic-input-tooltip .dit-angle-marker,
+#dynamic-input-tooltip .dit-angle {
+  display: none;
+  color: #ffff00;
+}
+
+/* Marks whichever of Distance/Angle currently has real focus -- see
+   ui/commandBar.ts's renderTooltip(). Only one of these two is ever
+   present at a time. */
+#dynamic-input-tooltip .dit-value.dit-active,
+#dynamic-input-tooltip .dit-angle.dit-active {
+  background: #0e5a8a;
+  color: #ffffff;
+}
+
+#dynamic-input-tooltip .dit-angle-marker.visible,
+#dynamic-input-tooltip .dit-angle.visible {
+  display: inline;
+}
+
 #toast {
   position: fixed;
   bottom: 60px;

@@ -185,6 +185,7 @@ export class CanvasView {
     this.canvas.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.canvas.addEventListener("mouseleave", () => {
       this.engine.clearSnapFeedback();
+      this.engine.commandBar.setTooltipPosition(null);
       this.requestRedraw();
     });
 
@@ -341,6 +342,11 @@ export class CanvasView {
       return;
     }
 
+    // clientX/clientY (page coordinates), not eventToScreenPoint's
+    // canvas-local ones -- the floating dynamic-input tooltip is `position:
+    // fixed`, so it needs the same coordinate space getBoundingClientRect()
+    // itself is measured in.
+    this.engine.commandBar.setTooltipPosition({ x: e.clientX, y: e.clientY });
     this.runPointerMove(this.viewport.screenToWorld(this.eventToScreenPoint(e)));
   }
 

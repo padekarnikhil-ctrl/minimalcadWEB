@@ -66,6 +66,49 @@ export class Ellipse implements Entity {
     return Math.abs(normalizeAngle(this.endAngle - this.startAngle)) < 1e-9;
   }
 
+  /** World point at parametric angle `t` (this Ellipse's own start/endAngle
+   *  convention: the pre-rotation local point (radiusX*cos t, radiusY*sin
+   *  t), rotated and translated into world space). */
+  pointAt(t: number): Point {
+    const lx = this.radiusX * Math.cos(t);
+    const ly = this.radiusY * Math.sin(t);
+    const cosR = Math.cos(this.rotation);
+    const sinR = Math.sin(this.rotation);
+    return {
+      x: this.center.x + lx * cosR - ly * sinR,
+      y: this.center.y + lx * sinR + ly * cosR,
+    };
+  }
+
+  /** The parametric angle (this ellipse's own start/endAngle convention) of
+   *  the ray from the center through `pt`, projected onto the boundary --
+   *  the local-frame equivalent of Circle/Arc's plain atan2(dy, dx). Shared
+   *  by hitTest() and the trim engine's ellipse-arc splitting. */
+  paramAngleOf(pt: Point): number {
+    const dx = pt.x - this.center.x;
+    const dy = pt.y - this.center.y;
+    const cosR = Math.cos(-this.rotation);
+    const sinR = Math.sin(-this.rotation);
+    const lx = dx * cosR - dy * sinR;
+    const ly = dx * sinR + dy * cosR;
+    return normalizeAngle(Math.atan2(ly / this.radiusY, lx / this.radiusX));
+  }
+
+  /** Implicit "distance off the boundary" in the ellipse's own local frame:
+   *  0 exactly on the boundary, <0 inside, >0 outside. Used by the trim
+   *  engine's numeric ellipse-vs-{circle,arc,ellipse} root finding --
+   *  closed-form quartics are deliberately avoided (see
+   *  geometry/intersect.ts's own doc comment). */
+  implicitValue(pt: Point): number {
+    const dx = pt.x - this.center.x;
+    const dy = pt.y - this.center.y;
+    const cosR = Math.cos(-this.rotation);
+    const sinR = Math.sin(-this.rotation);
+    const lx = dx * cosR - dy * sinR;
+    const ly = dx * sinR + dy * cosR;
+    return (lx / this.radiusX) ** 2 + (ly / this.radiusY) ** 2 - 1;
+  }
+
   /** The 4 major/minor axis endpoints in world space (rotation applied) --
    *  this ellipse's equivalent of Circle.quadrantPoints(). */
   axisPoints(): [Point, Point, Point, Point] {
@@ -211,13 +254,7 @@ export class Ellipse implements Entity {
 
     if (this.isFull()) return true;
 
-    const dx = pt.x - this.center.x;
-    const dy = pt.y - this.center.y;
-    const cosR = Math.cos(-this.rotation);
-    const sinR = Math.sin(-this.rotation);
-    const lx = dx * cosR - dy * sinR;
-    const ly = dx * sinR + dy * cosR;
-    const angle = normalizeAngle(Math.atan2(ly / this.radiusY, lx / this.radiusX));
+    const angle = this.paramAngleOf(pt);
     const s = this.startAngle;
     const e = this.endAngle;
     return s <= e ? angle >= s && angle <= e : angle >= s || angle <= e;

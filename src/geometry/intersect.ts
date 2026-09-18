@@ -5,18 +5,28 @@
  * Ported from commands/trim.py's intersection engine -- specifically the
  * ALREADY-FIXED version (gap-tolerance widened to a zoom-aware pick
  * tolerance rather than pure floating-point-noise epsilons), not the
- * original buggy one. v1 scope: Line, Circle, Arc (no Ellipse, no Polyline
- * self-intersection -- see commands/trim.ts for the Polyline scope note).
+ * original buggy one. Line/Circle/Arc pairs use exact closed-form solves;
+ * Ellipse was added afterward (see commands/trim.ts for the Polyline
+ * self-intersection scope note, which is still deferred). Line-vs-Ellipse
+ * still has an exact closed form (solved in the ellipse's own unit-circle
+ * frame), but Circle/Arc-vs-Ellipse and Ellipse-vs-Ellipse are true quartics
+ * -- rather than hand-deriving those, `ellipseCurveIntersections()` below
+ * samples one curve's parametric angle finely and bisects onto the other
+ * curve's zero-valued implicit function, matching this file's existing
+ * "gap tolerance" pragmatism (exact where cheap, tolerance-bounded
+ * numerically where not) over exact-but-fragile quartic algebra.
  */
 
 import type { Point } from "../core/types";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 
 type CircleLike = Circle | Arc;
 
 const TWO_PI = 2.0 * Math.PI;
+const ELLIPSE_SAMPLES = 720; // 0.5 degree resolution -- ample for pick-driven trim
 
 /** Whether `angle` falls within the CCW sweep from `start` to `end` (any real
  *  radian values), with a small epsilon at the boundary so a cutting point
@@ -106,6 +116,149 @@ export function lineCircleIntersections(line: Line, circle: CircleLike, gap: num
   return pts;
 }
 
+/** Transforms a world point into `ellipse`'s local unit-circle frame:
+ *  translate to its center, undo its rotation, then divide by (radiusX,
+ *  radiusY) -- boundary points map exactly onto the unit circle. */
+function toEllipseUnitFrame(pt: Point, ellipse: Ellipse): Point {
+  const dx = pt.x - ellipse.center.x;
+  const dy = pt.y - ellipse.center.y;
+  const cosR = Math.cos(-ellipse.rotation);
+  const sinR = Math.sin(-ellipse.rotation);
+  const lx = dx * cosR - dy * sinR;
+  const ly = dx * sinR + dy * cosR;
+  return { x: lx / ellipse.radiusX, y: ly / ellipse.radiusY };
+}
+
+function fromEllipseUnitFrame(pt: Point, ellipse: Ellipse): Point {
+  const lx = pt.x * ellipse.radiusX;
+  const ly = pt.y * ellipse.radiusY;
+  const cosR = Math.cos(ellipse.rotation);
+  const sinR = Math.sin(ellipse.rotation);
+  return {
+    x: ellipse.center.x + lx * cosR - ly * sinR,
+    y: ellipse.center.y + lx * sinR + ly * cosR,
+  };
+}
+
+/** Exact closed-form line-vs-ellipse solve: transformed into the ellipse's
+ *  own unit-circle frame (a non-uniform scale, but a line stays a line
+ *  under it), the problem is exactly lineCirclePoints() against the unit
+ *  circle. `gap` is applied in that scaled frame, so it's only an
+ *  approximate world-space tolerance -- acceptable for trim's pick-driven
+ *  near-touch forgiveness, not for anything precision-sensitive. */
+export function lineEllipseIntersections(line: Line, ellipse: Ellipse, gap: number): Point[] {
+  if (ellipse.radiusX <= 0 || ellipse.radiusY <= 0) return [];
+  const q1 = toEllipseUnitFrame(line.startPoint, ellipse);
+  const q2 = toEllipseUnitFrame(line.endPoint, ellipse);
+  const avgRadius = (ellipse.radiusX + ellipse.radiusY) / 2;
+  const scaledGap = gap / Math.max(avgRadius, 1e-6);
+
+  const pts: Point[] = [];
+  for (const q of lineCirclePoints(q1, q2, { x: 0, y: 0 }, 1, scaledGap)) {
+    if (!ellipse.isFull() && !inAngularSpan(Math.atan2(q.y, q.x), ellipse.startAngle, ellipse.endAngle)) continue;
+    pts.push(fromEllipseUnitFrame(q, ellipse));
+  }
+  return pts;
+}
+
+/**
+ * Samples `paramA`'s own parametric angle uniformly over `spanA`, looking
+ * for sign changes in `implicitB` (0 exactly on curve B, opposite signs
+ * inside vs. outside) between consecutive samples, then bisects each
+ * bracket down to a point that's exactly on curve A and, within
+ * `ELLIPSE_SAMPLES`' resolution, on curve B too. A full circle/ellipse's own
+ * `spanA` is `[start, start + 2*PI]` -- since that end angle is the same
+ * physical point as the start, the closing bracket falls out of the
+ * uniform sampling for free, with no separate "periodic" case needed.
+ */
+function sampleAndBisect(paramA: (t: number) => Point, spanA: [number, number], implicitB: (pt: Point) => number): Point[] {
+  const [t0, t1] = spanA;
+  const n = ELLIPSE_SAMPLES;
+
+  const results: Point[] = [];
+  let prevT = t0;
+  let prevF = implicitB(paramA(t0));
+  for (let i = 1; i <= n; i++) {
+    const curT = t0 + ((t1 - t0) * i) / n;
+    const curF = implicitB(paramA(curT));
+
+    if (prevF === 0) {
+      results.push(paramA(prevT));
+    } else if ((prevF < 0) !== (curF < 0)) {
+      let lo = prevT;
+      let hi = curT;
+      let flo = prevF;
+      for (let iter = 0; iter < 40; iter++) {
+        const mid = (lo + hi) / 2;
+        const fm = implicitB(paramA(mid));
+        if (fm === 0 || hi - lo < 1e-12) {
+          lo = mid;
+          break;
+        }
+        if ((fm < 0) === (flo < 0)) {
+          lo = mid;
+          flo = fm;
+        } else {
+          hi = mid;
+        }
+      }
+      results.push(paramA((lo + hi) / 2));
+    }
+
+    prevT = curT;
+    prevF = curF;
+  }
+  return results;
+}
+
+/** Curve-vs-ellipse crossings for a Circle/Arc paired with an Ellipse --
+ *  see this file's header comment for why this is numeric rather than a
+ *  hand-derived quartic. Samples the circle/arc (simpler parametrization)
+ *  and roots the ellipse's implicitValue(); the resulting points are then
+ *  filtered against the ellipse's OWN angular span too, since sampling the
+ *  circle knows nothing about it. */
+export function circleEllipseIntersections(circle: CircleLike, ellipse: Ellipse, gap: number): Point[] {
+  if (ellipse.radiusX <= 0 || ellipse.radiusY <= 0 || circle.radius <= 0) return [];
+  const isArc = circle instanceof Arc;
+  const span: [number, number] = isArc
+    ? [circle.startAngle, circle.startAngle + (((circle.endAngle - circle.startAngle) % TWO_PI) + TWO_PI) % TWO_PI || TWO_PI]
+    : [0, TWO_PI];
+
+  const paramA = (t: number): Point => ({
+    x: circle.center.x + circle.radius * Math.cos(t),
+    y: circle.center.y + circle.radius * Math.sin(t),
+  });
+
+  const angularEps = gap / Math.max(circle.radius, 1e-6);
+  const raw = sampleAndBisect(paramA, span, (pt) => ellipse.implicitValue(pt));
+
+  const pts: Point[] = [];
+  for (const pt of raw) {
+    if (!ellipse.isFull() && !inAngularSpan(ellipse.paramAngleOf(pt), ellipse.startAngle, ellipse.endAngle, angularEps)) continue;
+    pts.push(pt);
+  }
+  return pts;
+}
+
+/** Ellipse-vs-ellipse crossings -- samples e1's own angular span, roots
+ *  e2's implicitValue(), then filters against e2's own span too. */
+export function ellipseEllipseIntersections(e1: Ellipse, e2: Ellipse, gap: number): Point[] {
+  if (e1.radiusX <= 0 || e1.radiusY <= 0 || e2.radiusX <= 0 || e2.radiusY <= 0) return [];
+  const sweep1 = (((e1.endAngle - e1.startAngle) % TWO_PI) + TWO_PI) % TWO_PI || TWO_PI;
+  const span: [number, number] = e1.isFull() ? [0, TWO_PI] : [e1.startAngle, e1.startAngle + sweep1];
+
+  const avgRadius2 = (e2.radiusX + e2.radiusY) / 2;
+  const angularEps = gap / Math.max(avgRadius2, 1e-6);
+  const raw = sampleAndBisect((t) => e1.pointAt(t), span, (pt) => e2.implicitValue(pt));
+
+  const pts: Point[] = [];
+  for (const pt of raw) {
+    if (!e2.isFull() && !inAngularSpan(e2.paramAngleOf(pt), e2.startAngle, e2.endAngle, angularEps)) continue;
+    pts.push(pt);
+  }
+  return pts;
+}
+
 export function circleCircleIntersections(c1: CircleLike, c2: CircleLike, gap: number): Point[] {
   const pts: Point[] = [];
   const d = Math.hypot(c2.center.x - c1.center.x, c2.center.y - c1.center.y);
@@ -134,10 +287,14 @@ export function circleCircleIntersections(c1: CircleLike, c2: CircleLike, gap: n
   return pts;
 }
 
-/** Dispatches by entity type pair (Line/Circle/Arc only -- no Ellipse, no
- *  Polyline self-intersection in v1). `gap` should be the caller's
- *  zoom-aware pick tolerance. */
-export function findIntersections(e1: Line | CircleLike, e2: Line | CircleLike, gap: number): Point[] {
+/** Dispatches by entity type pair (Line/Circle/Arc/Ellipse; no Polyline
+ *  self-intersection -- see commands/trim.ts's own scope note). `gap` should
+ *  be the caller's zoom-aware pick tolerance. */
+export function findIntersections(
+  e1: Line | CircleLike | Ellipse,
+  e2: Line | CircleLike | Ellipse,
+  gap: number,
+): Point[] {
   if (e1 instanceof Line && e2 instanceof Line) {
     const pt = lineLineIntersection(e1, e2, gap);
     return pt !== null ? [pt] : [];
@@ -150,6 +307,21 @@ export function findIntersections(e1: Line | CircleLike, e2: Line | CircleLike, 
   }
   if ((e1 instanceof Circle || e1 instanceof Arc) && (e2 instanceof Circle || e2 instanceof Arc)) {
     return circleCircleIntersections(e1, e2, gap);
+  }
+  if (e1 instanceof Line && e2 instanceof Ellipse) {
+    return lineEllipseIntersections(e1, e2, gap);
+  }
+  if (e1 instanceof Ellipse && e2 instanceof Line) {
+    return lineEllipseIntersections(e2, e1, gap);
+  }
+  if ((e1 instanceof Circle || e1 instanceof Arc) && e2 instanceof Ellipse) {
+    return circleEllipseIntersections(e1, e2, gap);
+  }
+  if (e1 instanceof Ellipse && (e2 instanceof Circle || e2 instanceof Arc)) {
+    return circleEllipseIntersections(e2, e1, gap);
+  }
+  if (e1 instanceof Ellipse && e2 instanceof Ellipse) {
+    return ellipseEllipseIntersections(e1, e2, gap);
   }
   return [];
 }

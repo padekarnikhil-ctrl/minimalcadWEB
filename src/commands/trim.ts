@@ -11,10 +11,9 @@
  * of the removed interval) rather than fragmenting at every interior
  * crossing.
  *
- * v1 scope: Line, Circle, Arc only (no Ellipse, no Polyline self-trim --
- * Polyline trim needs vertex-chain rebuilding for both open and closed
- * cases, a genuinely separate and substantial piece deliberately deferred
- * past v1 rather than rushed).
+ * Scope: Line, Circle, Arc, Ellipse (no Polyline self-trim -- Polyline trim
+ * needs vertex-chain rebuilding for both open and closed cases, a genuinely
+ * separate and substantial piece deliberately deferred rather than rushed).
  */
 
 import type { Point } from "../core/types";
@@ -24,6 +23,7 @@ import { BaseCommand } from "./base";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 import { findIntersections } from "../geometry/intersect";
 import { entityAt } from "../engine/picking";
 
@@ -52,7 +52,13 @@ export class TrimCommand extends BaseCommand {
     const points: Point[] = [];
     for (const other of trimmable) {
       if (other === target) continue;
-      points.push(...findIntersections(target as Line | Circle | Arc, other as Line | Circle | Arc, gap));
+      points.push(
+        ...findIntersections(
+          target as Line | Circle | Arc | Ellipse,
+          other as Line | Circle | Arc | Ellipse,
+          gap,
+        ),
+      );
     }
 
     const uniquePoints: Point[] = [];
@@ -66,13 +72,14 @@ export class TrimCommand extends BaseCommand {
   }
 
   private isTrimmable(e: Entity): boolean {
-    return e instanceof Line || e instanceof Circle || e instanceof Arc;
+    return e instanceof Line || e instanceof Circle || e instanceof Arc || e instanceof Ellipse;
   }
 
   private trimEntity(entity: Entity, splitPoints: Point[], clickPt: Point): void {
     if (entity instanceof Line) this.trimLine(entity, splitPoints, clickPt);
     else if (entity instanceof Circle) this.trimCircle(entity, splitPoints, clickPt);
     else if (entity instanceof Arc) this.trimArc(entity, splitPoints, clickPt);
+    else if (entity instanceof Ellipse) this.trimEllipse(entity, splitPoints, clickPt);
   }
 
   private trimLine(entity: Line, splitPoints: Point[], clickPt: Point): void {
@@ -225,6 +232,131 @@ export class TrimCommand extends BaseCommand {
         new Arc(entity.center, entity.radius, normalizeAngle(sAng + o0b), normalizeAngle(sAng + o1b), {
           lineType: entity.lineType,
         }),
+      );
+    }
+    this.engine.requestRedraw();
+    this.start();
+  }
+
+  /** Dispatches to whichever of trimCircle/trimArc's own two algorithms
+   *  applies -- a FULL ellipse is a closed loop with no real endpoints (any
+   *  angle="0" reference is arbitrary, so bounding pieces at a fixed 0/2*PI
+   *  would carve a fake seam at a spot nothing actually cuts, same failure
+   *  Circle avoids by never anchoring on anything but its own real cutting
+   *  angles); a partial elliptical arc has genuine endpoints, same as Arc. */
+  private trimEllipse(entity: Ellipse, splitPoints: Point[], clickPt: Point): void {
+    if (entity.isFull()) this.trimFullEllipse(entity, splitPoints, clickPt);
+    else this.trimPartialEllipse(entity, splitPoints, clickPt);
+  }
+
+  /** Identical to trimCircle, against Ellipse's own paramAngleOf()
+   *  parametrization instead of plain atan2 -- same "one spanning piece"
+   *  standard. */
+  private trimFullEllipse(entity: Ellipse, splitPoints: Point[], clickPt: Point): void {
+    if (splitPoints.length === 0) return;
+
+    const angles = Array.from(new Set(splitPoints.map((p) => entity.paramAngleOf(p)))).sort((a, b) => a - b);
+    if (angles.length < 2) {
+      this.commandBar.setStatus("TRIM", "Need at least 2 cutting points on an ellipse - nothing trimmed");
+      return;
+    }
+    const clickParam = entity.paramAngleOf(clickPt);
+
+    const bounds = [...angles, angles[0]! + TWO_PI];
+    let trimmedIdx = -1;
+    for (let i = 0; i < bounds.length - 1; i++) {
+      let testP = clickParam;
+      if (i === bounds.length - 2 && testP < bounds[i]!) testP += TWO_PI;
+      if (testP >= bounds[i]! && testP <= bounds[i + 1]!) {
+        trimmedIdx = i;
+        break;
+      }
+    }
+    if (trimmedIdx === -1) return;
+
+    this.undo.push(this.document.toDict());
+    this.document.removeEntity(entity);
+
+    const a0 = normalizeAngle(bounds[trimmedIdx + 1]!);
+    const a1 = normalizeAngle(bounds[trimmedIdx]!);
+    this.document.addEntity(
+      new Ellipse(entity.center, entity.radiusX, entity.radiusY, entity.rotation, a0, a1, {
+        lineType: entity.lineType,
+      }),
+    );
+    this.engine.requestRedraw();
+    this.start();
+  }
+
+  /** Identical splitting logic to trimArc, just against Ellipse's own
+   *  paramAngleOf()/pointAt() parametrization instead of plain atan2. */
+  private trimPartialEllipse(entity: Ellipse, splitPoints: Point[], clickPt: Point): void {
+    const sAng = normalizeAngle(entity.startAngle);
+    const eAng = normalizeAngle(entity.endAngle);
+    let totalSweep = ((eAng - sAng) % TWO_PI + TWO_PI) % TWO_PI;
+    if (totalSweep === 0) totalSweep = TWO_PI;
+
+    const allOffsets: number[] = [];
+    const validSplitOffsets: number[] = [];
+    for (const p of splitPoints) {
+      const ang = entity.paramAngleOf(p);
+      const relOffset = ((ang - sAng) % TWO_PI + TWO_PI) % TWO_PI;
+      allOffsets.push(relOffset);
+      if (relOffset > 1e-4 && relOffset < totalSweep - 1e-4) validSplitOffsets.push(relOffset);
+    }
+
+    const clickAng = entity.paramAngleOf(clickPt);
+    const clickParam = ((clickAng - sAng) % TWO_PI + TWO_PI) % TWO_PI;
+
+    const realTouches = Array.from(new Set(allOffsets));
+    let bounds = Array.from(new Set([0, ...validSplitOffsets, totalSweep])).sort((a, b) => a - b);
+
+    if (bounds.length < 3) {
+      if (realTouches.length < 2) {
+        this.commandBar.setStatus("TRIM", "No cutting edge found - nothing trimmed");
+        return;
+      }
+      bounds = [0, totalSweep];
+    }
+
+    let trimmedIdx = -1;
+    for (let i = 0; i < bounds.length - 1; i++) {
+      if (clickParam >= bounds[i]! && clickParam <= bounds[i + 1]!) {
+        trimmedIdx = i;
+        break;
+      }
+    }
+    if (trimmedIdx === -1) return;
+
+    this.undo.push(this.document.toDict());
+    this.document.removeEntity(entity);
+
+    const o0a = bounds[0]!, o1a = bounds[trimmedIdx]!;
+    if (o1a - o0a > 1e-4) {
+      this.document.addEntity(
+        new Ellipse(
+          entity.center,
+          entity.radiusX,
+          entity.radiusY,
+          entity.rotation,
+          normalizeAngle(sAng + o0a),
+          normalizeAngle(sAng + o1a),
+          { lineType: entity.lineType },
+        ),
+      );
+    }
+    const o0b = bounds[trimmedIdx + 1]!, o1b = bounds[bounds.length - 1]!;
+    if (o1b - o0b > 1e-4) {
+      this.document.addEntity(
+        new Ellipse(
+          entity.center,
+          entity.radiusX,
+          entity.radiusY,
+          entity.rotation,
+          normalizeAngle(sAng + o0b),
+          normalizeAngle(sAng + o1b),
+          { lineType: entity.lineType },
+        ),
       );
     }
     this.engine.requestRedraw();

@@ -12,10 +12,17 @@ import type { Point } from "../core/types";
 import type { Engine } from "../engine/engine";
 import { BaseCommand } from "./base";
 import { Line } from "../entities/line";
+import { drawGrip } from "../entities/style";
 import { parsePoint, parseTwoPositiveFloats } from "../input/dynamicInput";
 
 export class RectangleCommand extends BaseCommand {
   private state: 0 | 1 = 0;
+  // "corner": firstCorner is one corner, second point is the opposite
+  // corner (the original/default behavior). "center": firstCorner is
+  // actually the rectangle's CENTER, and the second point is one corner --
+  // the opposite corner is the center's own reflection of it, so the
+  // rectangle stays centered on the first point picked.
+  private mode: "corner" | "center" = "corner";
   private firstCorner: Point | null = null;
   private currentMousePos: Point | null = null;
 
@@ -25,9 +32,10 @@ export class RectangleCommand extends BaseCommand {
 
   start(): void {
     this.state = 0;
+    this.mode = "corner";
     this.firstCorner = null;
     this.currentMousePos = null;
-    this.commandBar.setStatus("RECTANGLE", "Pick First Corner (or type x,y)");
+    this.commandBar.setStatus("RECTANGLE", "Pick First Corner (or type x,y, or C for Center)");
     this.commandBar.enableInput();
     this.engine.requestRedraw();
   }
@@ -42,21 +50,34 @@ export class RectangleCommand extends BaseCommand {
       this.commandBar.enableInput();
     } else {
       const { point } = this.engine.snap(worldPos, this.firstCorner);
-      this.commitOppositeCorner(point);
+      this.commitSecondPoint(point);
     }
     this.engine.requestRedraw();
   }
 
-  private commitOppositeCorner(worldPos: Point): void {
-    const width = Math.abs(worldPos.x - this.firstCorner!.x);
-    const height = Math.abs(worldPos.y - this.firstCorner!.y);
+  /** Resolves the second picked point (a plain opposite corner in "corner"
+   *  mode, or a corner to be mirrored about the center in "center" mode)
+   *  into the rectangle's actual two opposite corners. */
+  private resolveCorners(second: Point): [Point, Point] {
+    const first = this.firstCorner!;
+    if (this.mode === "corner") return [first, second];
+    // Center mode: `first` is the center, `second` is one corner -- the
+    // opposite corner is second's point-reflection through the center.
+    const opposite: Point = { x: 2 * first.x - second.x, y: 2 * first.y - second.y };
+    return [opposite, second];
+  }
+
+  private commitSecondPoint(worldPos: Point): void {
+    const [c1, c2] = this.resolveCorners(worldPos);
+    const width = Math.abs(c2.x - c1.x);
+    const height = Math.abs(c2.y - c1.y);
     if (width === 0 || height === 0) return; // degenerate rectangle, silently rejected
 
     this.undo.push(this.document.toDict());
-    const p1 = this.firstCorner!;
-    const p2: Point = { x: worldPos.x, y: p1.y };
-    const p3 = worldPos;
-    const p4: Point = { x: p1.x, y: worldPos.y };
+    const p1 = c1;
+    const p2: Point = { x: c2.x, y: c1.y };
+    const p3 = c2;
+    const p4: Point = { x: c1.x, y: c2.y };
     this.document.addEntity(new Line(p1, p2));
     this.document.addEntity(new Line(p2, p3));
     this.document.addEntity(new Line(p3, p4));
@@ -70,8 +91,9 @@ export class RectangleCommand extends BaseCommand {
     this.currentMousePos = point;
 
     if (this.state === 1 && this.firstCorner !== null) {
-      const width = Math.abs(point.x - this.firstCorner.x);
-      const height = Math.abs(point.y - this.firstCorner.y);
+      const [c1, c2] = this.resolveCorners(point);
+      const width = Math.abs(c2.x - c1.x);
+      const height = Math.abs(c2.y - c1.y);
       this.commandBar.setStatus(
         "RECTANGLE",
         `Width: ${width.toFixed(2)} | Height: ${height.toFixed(2)} (or type w,h)`,
@@ -82,9 +104,15 @@ export class RectangleCommand extends BaseCommand {
 
   textInput(text: string): void {
     if (this.state === 0) {
+      const trimmed = text.trim().toLowerCase();
+      if (trimmed === "c" || trimmed === "center") {
+        this.mode = "center";
+        this.commandBar.setStatus("RECTANGLE", "Pick Center Point (or type x,y)");
+        return;
+      }
       const point = parsePoint(text, null);
       if (point === null) {
-        this.commandBar.setStatus("RECTANGLE", "Invalid point - use x,y");
+        this.commandBar.setStatus("RECTANGLE", "Invalid point - use x,y, or C for Center");
         return;
       }
       this.firstCorner = point;
@@ -101,20 +129,23 @@ export class RectangleCommand extends BaseCommand {
       const mouse = this.currentMousePos ?? this.firstCorner!;
       const xDir = mouse.x >= this.firstCorner!.x ? 1 : -1;
       const yDir = mouse.y >= this.firstCorner!.y ? 1 : -1;
-      this.commitOppositeCorner({
-        x: this.firstCorner!.x + width * xDir,
-        y: this.firstCorner!.y + height * yDir,
+      const halfW = this.mode === "center" ? width / 2 : width;
+      const halfH = this.mode === "center" ? height / 2 : height;
+      this.commitSecondPoint({
+        x: this.firstCorner!.x + halfW * xDir,
+        y: this.firstCorner!.y + halfH * yDir,
       });
     }
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
     if (this.state !== 1 || this.firstCorner === null || this.currentMousePos === null) return;
+    const [c1, c2] = this.resolveCorners(this.currentMousePos);
     const viewport = this.engine.viewport;
-    const p1 = viewport.worldToScreen(this.firstCorner);
-    const p2 = viewport.worldToScreen({ x: this.currentMousePos.x, y: this.firstCorner.y });
-    const p3 = viewport.worldToScreen(this.currentMousePos);
-    const p4 = viewport.worldToScreen({ x: this.firstCorner.x, y: this.currentMousePos.y });
+    const p1 = viewport.worldToScreen(c1);
+    const p2 = viewport.worldToScreen({ x: c2.x, y: c1.y });
+    const p3 = viewport.worldToScreen(c2);
+    const p4 = viewport.worldToScreen({ x: c1.x, y: c2.y });
 
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
@@ -127,10 +158,15 @@ export class RectangleCommand extends BaseCommand {
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
+
+    if (this.mode === "center") {
+      drawGrip(ctx, viewport.worldToScreen(this.firstCorner));
+    }
   }
 
   cancel(): void {
     this.state = 0;
+    this.mode = "corner";
     this.firstCorner = null;
     this.currentMousePos = null;
     this.commandBar.setReady();

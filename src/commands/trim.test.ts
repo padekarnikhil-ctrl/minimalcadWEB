@@ -4,6 +4,7 @@ import { TrimCommand } from "./trim";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 
 // These five scenarios directly mirror the scripted Python probes used to
 // verify (and fix) commands/trim.py's three real bugs earlier this session:
@@ -94,5 +95,48 @@ describe("TrimCommand", () => {
     cmd.leftClick({ x: 50, y: 0 }); // click the bottom side
 
     expect(engine.document.entities).toHaveLength(3); // bottom side fully deleted
+  });
+
+  it("an ellipse's first trim (cut by two lines) produces exactly one spanning elliptical arc", () => {
+    const engine = makeTestEngine();
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 50, 25);
+    engine.document.addEntity(ellipse);
+    engine.document.addEntity(new Line({ x: -100, y: 10 }, { x: 100, y: 10 }));
+    engine.document.addEntity(new Line({ x: -100, y: -10 }, { x: 100, y: -10 }));
+
+    const cmd = new TrimCommand(engine);
+    cmd.start();
+    cmd.leftClick({ x: 0, y: 25 }); // top sliver
+
+    const arcs = engine.document.entities.filter((e): e is Ellipse => e instanceof Ellipse);
+    expect(arcs).toHaveLength(1);
+    // The surviving piece should still cover the bottom of the ellipse
+    // (e.g. its own -y quadrant point), not the trimmed-away top sliver.
+    expect(arcs[0]!.hitTest({ x: 0, y: -25 }, 1)).toBe(true);
+  });
+
+  it("trims a line at the point it crosses an ellipse", () => {
+    const engine = makeTestEngine();
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10);
+    const line = new Line({ x: -50, y: 0 }, { x: 50, y: 0 });
+    engine.document.addEntity(ellipse);
+    engine.document.addEntity(line);
+
+    const cmd = new TrimCommand(engine);
+    cmd.start();
+    cmd.leftClick({ x: 35, y: 0 }); // click the right-hand remainder, outside the ellipse
+
+    // The line crosses the ellipse at x=-20 AND x=20; clicking past the
+    // x=20 crossing removes only that [20,50] piece -- per trim's
+    // documented "merge, don't fragment" design, the untouched remainder
+    // survives as ONE piece spanning back through the interior x=-20
+    // crossing, not split into two fragments there.
+    const remnant = engine.document.entities.find(
+      (e): e is Line => e instanceof Line && Math.abs(e.startPoint.y) < 1e-6 && Math.abs(e.endPoint.y) < 1e-6,
+    );
+    expect(remnant).toBeDefined();
+    const xs = [remnant!.startPoint.x, remnant!.endPoint.x].sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(-50, 6);
+    expect(xs[1]).toBeCloseTo(20, 2);
   });
 });
