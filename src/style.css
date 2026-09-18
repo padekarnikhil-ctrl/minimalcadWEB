@@ -14,51 +14,73 @@ body {
 #app {
   display: flex;
   flex-direction: column;
+  /* `100vh` on a mobile browser is measured against the LARGEST possible
+     viewport (address bar collapsed) -- with the address bar actually
+     shown (the common case, especially right after a page load), the real
+     visible area is shorter than that, so a bottom-docked, `overflow:
+     hidden`-on-body element sized to exactly 100vh (the command bar, being
+     the last flex child) ends up partly or entirely below the visible
+     screen with no scroll to reach it. `100dvh` (dynamic viewport height,
+     supported by every mobile browser this app targets -- Chrome 108+,
+     Safari 15.4+) tracks the browser chrome's actual current state
+     instead. Kept as a fallback-then-override pair, not a single rule,
+     since an unsupported browser needs SOME height value rather than none. */
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
 }
 
 #toolbar {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: center; /* each wrapped row centers independently, not just the first */
+  /* NOT `center`: once content overflows, some engines only "safe-align"
+     (fall back to start) for newer alignment values -- plain `center` on
+     an overflowing flex row can leave the START of the content (here, the
+     Line tool button) scrolled-off and unreachable even with a working
+     scrollbar. `flex-start` has no such ambiguity. */
+  justify-content: flex-start;
   gap: 2px;
   padding: 4px 8px;
   background: #252526;
   border-bottom: 1px solid #3c3c3c;
-  /* With enough commands registered, this no longer fits one row on a
-     narrow/tablet-width screen -- html/body's own `overflow: hidden` means
-     there's no page-level scroll to fall back on, so without wrapping,
-     anything past the visible width (the dimension buttons, reported
-     directly) was simply unreachable, not just visually clipped. Wraps to
-     as many rows as the content needs rather than scrolling -- a scroll
-     strip read as awkward; a second row reads as just "a slightly taller
-     toolbar". Safe now specifically because canvasView.ts's ResizeObserver
-     (added for this exact reason) re-syncs the canvas whenever the
-     toolbar's own wrapped height changes, so it can't silently distort
-     click-to-world mapping the way it used to before that fix existed.
-     Overridden below for a fine (mouse/trackpad) pointer -- see that rule's
-     own comment for why a single compact row is the better tradeoff there
-     instead. */
+  /* With enough commands registered, this doesn't fit one row on a
+     narrow/tablet-width screen -- scrolls horizontally instead of wrapping
+     to a second row (wrapping's own multi-row height was hard to predict
+     reliably across the wide range of screen widths/pointer types this
+     needs to work on -- see the removed any-pointer/pointer-based sizing
+     overrides this replaced). canvasView.ts's ResizeObserver re-syncs the
+     canvas off the canvas element's own box, not #toolbar's height
+     specifically, so a fixed single-row height here doesn't need any
+     separate wiring either. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch; /* momentum scrolling on iOS */
+  scrollbar-width: none; /* Firefox: scrollable, just no visible track */
   flex-shrink: 0;
 }
 
-/* Desktop (mouse/trackpad, not a touchscreen -- same any-pointer signal
-   ui/mobileNumpad's own #mobile-touch-ui uses, just inverted): every
-   command button is meant to fit on one row here, never wrapping to a
-   second -- a mouse has no need for the larger, more thumb-friendly touch
-   target sizing the base rules above use, so shrinking the icon buttons and
-   tightening the gaps between them (see the matching #toolbar button.icon-btn
-   and .toolbar-gap overrides further down) buys back enough width for
-   every button to fit a single row on an ordinary desktop window without
-   needing to scroll or wrap. Left as wrap-to-multiple-rows at full touch
-   sizing on a coarse (touch) pointer -- see the base #toolbar rule's own
-   comment for that case. */
-@media (any-pointer: fine) {
+/* Same "scrollable but no visible scrollbar" as the rule above, for
+   WebKit/Blink (Chrome/Safari/Edge) -- `scrollbar-width` alone doesn't
+   cover those. Touch drag-scroll and a mouse's shift+wheel/trackpad swipe
+   both keep working; only the track/thumb itself is hidden. */
+#toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Desktop (mouse/trackpad as the PRIMARY pointer -- deliberately `pointer`,
+   not `any-pointer`: the latter is true if ANY available pointer is fine,
+   which includes a touch-primary tablet that merely has stylus support).
+   A mouse has no need for the larger, more thumb-friendly touch target
+   sizing the base rules above use, so shrinking the icon buttons and
+   tightening the gaps between them (see the matching #toolbar
+   button.icon-btn and .toolbar-gap overrides further down) buys back
+   enough width that an ordinary desktop window rarely needs to scroll at
+   all, even though scrolling (the base rule, above) is still there as the
+   fallback if one ever is narrow enough to need it. */
+@media (pointer: fine) {
   #toolbar {
-    flex-wrap: nowrap;
     gap: 1px;
     padding: 4px;
   }
@@ -91,8 +113,9 @@ body {
 
 /* Smaller housing around the SAME 20px glyph (ui/toolIcons.ts's drawIcon()
    always renders at a fixed 20px regardless of button size) -- see the
-   #toolbar rule's own fine-pointer comment for why. */
-@media (any-pointer: fine) {
+   #toolbar rule's own primary-pointer comment for why `pointer`, not
+   `any-pointer`. */
+@media (pointer: fine) {
   #toolbar button.icon-btn {
     width: 24px;
     height: 24px;
@@ -118,7 +141,7 @@ body {
   width: 10px;
 }
 
-@media (any-pointer: fine) {
+@media (pointer: fine) {
   #toolbar .toolbar-gap {
     width: 5px;
   }
@@ -352,9 +375,58 @@ body {
      pointer just below, matching #toolbar's own desktop override. */
 }
 
-@media (any-pointer: fine) {
+@media (pointer: fine) {
   #command-bar {
     flex-wrap: nowrap;
+  }
+}
+
+/* Compact sizing on a narrow screen -- same "shrink to actually fit one
+   row" strategy #toolbar already uses for icons (button.icon-btn / gap
+   overrides below), gated on available WIDTH so it also helps a genuine
+   desktop window that's simply been resized narrow (pointer: fine still
+   forces nowrap there -- see above -- so it needs the room this buys back
+   too). Smaller fonts/padding/fixed-width labels make a single row fit
+   comfortably without relying on wrapping or the prompt label's own text
+   reflow (both stay in place below as fallbacks for anything that still
+   can't fit even this compact a row).
+
+   `!important` on every property below: verified (see the styling
+   session's own notes) that Vite's production CSS minifier can reorder an
+   @media block to BEFORE the plain #command-bar .prompt-label /
+   input[type="text"] / etc. rules it's meant to override in the final
+   bundle, at which point the later, equal-specificity plain rule would
+   silently win instead -- this isn't a hypothetical, it was caught by
+   actually inspecting the minified output. `!important` makes the override
+   win regardless of which one the minifier puts last. */
+@media (max-width: 900px) {
+  #command-bar {
+    gap: 4px !important;
+    padding: 4px 6px !important;
+  }
+
+  #command-bar .prompt-label {
+    font-size: 11px !important;
+    min-width: 0 !important;
+  }
+
+  #command-bar input[type="text"] {
+    font-size: 11px !important;
+    min-width: 40px !important;
+  }
+
+  #command-bar .angle-marker {
+    font-size: 11px !important;
+  }
+
+  #command-bar .snap-label {
+    min-width: 55px !important;
+    font-size: 10px !important;
+  }
+
+  #command-bar .ortho-label {
+    font-size: 10px !important;
+    padding: 0 2px !important;
   }
 }
 
