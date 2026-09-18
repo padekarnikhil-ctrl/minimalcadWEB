@@ -114,6 +114,7 @@ export class EllipseCommand extends BaseCommand {
       this.currentMousePos = point;
       const radiusY = this.minorRadiusAt(point);
       this.commandBar.setStatus("ELLIPSE", `Minor Radius: ${radiusY.toFixed(2)} (or type a value)`);
+      this.commandBar.setLiveValue(radiusY.toFixed(2));
     }
     this.engine.requestRedraw();
   }

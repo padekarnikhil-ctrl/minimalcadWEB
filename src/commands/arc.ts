@@ -79,6 +79,7 @@ export class ArcCommand extends BaseCommand {
         this.commandBar.setStatus("ARC", "Points are collinear - pick a different point");
       } else {
         this.commandBar.setStatus("ARC", `Radius: ${fit.radius.toFixed(2)} (click to place, or type a value)`);
+        this.commandBar.setLiveValue(fit.radius.toFixed(2));
       }
     }
     this.engine.requestRedraw();

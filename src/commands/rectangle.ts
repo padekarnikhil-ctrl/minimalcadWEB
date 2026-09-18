@@ -98,6 +98,10 @@ export class RectangleCommand extends BaseCommand {
         "RECTANGLE",
         `Width: ${width.toFixed(2)} | Height: ${height.toFixed(2)} (or type w,h)`,
       );
+      // "width,height" -- the exact grammar textInput()'s parseTwoPositiveFloats
+      // expects, so an untouched Enter commits this live-previewed size
+      // (same as every other command's live default), not just a typed one.
+      this.commandBar.setLiveValue(`${width.toFixed(2)},${height.toFixed(2)}`);
     }
     this.engine.requestRedraw();
   }

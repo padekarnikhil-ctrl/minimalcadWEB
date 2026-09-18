@@ -60,6 +60,7 @@ export class CircleCommand extends BaseCommand {
     if (this.state === 1 && this.center !== null) {
       const radius = Math.hypot(point.x - this.center.x, point.y - this.center.y);
       this.commandBar.setStatus("CIRCLE", `Radius: ${radius.toFixed(2)} (or type r25/d25)`);
+      this.commandBar.setLiveValue(radius.toFixed(2));
     }
     this.engine.requestRedraw();
   }

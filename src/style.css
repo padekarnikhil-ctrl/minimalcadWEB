@@ -334,11 +334,28 @@ body {
   position: relative;
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
   background: #252526;
   border-top: 1px solid #3c3c3c;
+  /* Same problem, and same fix, as #toolbar's own flex-wrap comment above:
+     on a narrow/tablet-width screen the prompt label + input + angle field +
+     snap label + ortho toggle don't all fit one row, and without wrapping
+     the overflow was simply unreachable (no page scroll to fall back on),
+     not just visually clipped -- which is what made the input field
+     unreachable on a tablet. canvasView.ts's ResizeObserver already re-syncs
+     the canvas off the canvas element's own box, not off #toolbar
+     specifically, so it re-syncs for this wrapping too with no separate
+     wiring needed. Overridden to a single row on a fine (mouse/trackpad)
+     pointer just below, matching #toolbar's own desktop override. */
+}
+
+@media (any-pointer: fine) {
+  #command-bar {
+    flex-wrap: nowrap;
+  }
 }
 
 #command-bar .suggestions-list {
