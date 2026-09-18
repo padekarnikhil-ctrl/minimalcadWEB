@@ -3,6 +3,7 @@ import { findSnap } from "./snap";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 import { Polyline } from "../entities/polyline";
 
 describe("findSnap", () => {
@@ -11,6 +12,28 @@ describe("findSnap", () => {
     const match = findSnap({ x: 0.5, y: 0 }, [line], 5);
     expect(match?.snapType).toBe("ENDPOINT");
     expect(match?.point).toEqual({ x: 0, y: 0 });
+  });
+
+  it("Endpoint of an Arc", () => {
+    const arc = new Arc({ x: 0, y: 0 }, 10, 0, Math.PI / 2); // ends at (0,10)
+    const match = findSnap({ x: 0.4, y: 9.8 }, [arc], 2);
+    expect(match?.snapType).toBe("ENDPOINT");
+    expect(match?.point!.x).toBeCloseTo(0, 6);
+    expect(match?.point!.y).toBeCloseTo(10, 6);
+  });
+
+  it("Endpoint of a partial Ellipse", () => {
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10, 0, 0, Math.PI / 2); // ends at (0,10)
+    const match = findSnap({ x: 0.4, y: 9.8 }, [ellipse], 2);
+    expect(match?.snapType).toBe("ENDPOINT");
+    expect(match?.point!.x).toBeCloseTo(0, 6);
+    expect(match?.point!.y).toBeCloseTo(10, 6);
+  });
+
+  it("A full Ellipse has no real endpoints to snap to", () => {
+    const ellipse = new Ellipse({ x: 0, y: 0 }, 20, 10);
+    const match = findSnap({ x: 20.5, y: 0 }, [ellipse], 2);
+    expect(match).toBeNull();
   });
 
   it("Midpoint of a Line", () => {
@@ -35,8 +58,14 @@ describe("findSnap", () => {
   });
 
   it("Quadrant respects an Arc's own angular span (won't snap outside its sweep)", () => {
-    const arc = new Arc({ x: 0, y: 0 }, 10, 0, Math.PI / 2); // east-to-south quarter only
-    const withinSweep = findSnap({ x: 10, y: 0.2 }, [arc], 2);
+    // Sweep from -45deg to 135deg: the south quadrant point (angle 90deg,
+    // i.e. world (0,10) in this Y-down convention) falls strictly INSIDE
+    // the sweep, not at either endpoint -- picked deliberately so this
+    // exercises Quadrant itself, not Endpoint (which now also matches a
+    // quadrant point that happens to BE one of the arc's own endpoints,
+    // and correctly outranks it -- see the dedicated Arc endpoint test).
+    const arc = new Arc({ x: 0, y: 0 }, 10, -Math.PI / 4, (3 * Math.PI) / 4);
+    const withinSweep = findSnap({ x: 0.2, y: 10 }, [arc], 2);
     expect(withinSweep?.snapType).toBe("QUADRANT");
 
     const outsideSweep = findSnap({ x: -10, y: 0.2 }, [arc], 2); // west quadrant, not in sweep

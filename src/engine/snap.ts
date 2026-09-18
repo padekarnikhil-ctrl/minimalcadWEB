@@ -13,6 +13,7 @@ import type { Entity } from "../entities/entity";
 import { Line } from "../entities/line";
 import { Circle } from "../entities/circle";
 import { Arc } from "../entities/arc";
+import { Ellipse } from "../entities/ellipse";
 import { Polyline } from "../entities/polyline";
 import { findIntersections } from "../geometry/intersect";
 
@@ -62,6 +63,17 @@ function findEndpoint(worldPos: Point, entities: Entity[], tolerance: number): P
     if (entity instanceof Line) {
       for (const pt of [entity.startPoint, entity.endPoint]) {
         if (dist(worldPos, pt) <= tolerance) return { ...pt };
+      }
+    } else if (entity instanceof Arc) {
+      for (const pt of [entity.pointAt(entity.startAngle), entity.pointAt(entity.endAngle)]) {
+        if (dist(worldPos, pt) <= tolerance) return pt;
+      }
+    } else if (entity instanceof Ellipse && !entity.isFull()) {
+      // A full ellipse (unlike Arc, which has no "full" representation of
+      // its own -- see trim.ts) has no real endpoints to snap to; skip it,
+      // same as Circle never reaching this function's Line/Arc-only branches.
+      for (const pt of [entity.pointAt(entity.startAngle), entity.pointAt(entity.endAngle)]) {
+        if (dist(worldPos, pt) <= tolerance) return pt;
       }
     }
   }
