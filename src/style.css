@@ -396,7 +396,16 @@ body {
   font-size: 13px;
   font-weight: bold;
   color: #00ffff;
-  white-space: nowrap;
+  /* Status text here can be a full sentence ("Pick Next Point (Tab:
+     Distance -> Angle, Enter to commit)") -- `nowrap` meant it could ONLY
+     ever be one unbroken line, so on a narrow phone/tablet width it just
+     overflowed off-screen taking the rest of the bar (input field, angle
+     field, snap/ortho labels) with it, regardless of #command-bar's own
+     flex-wrap: that only wraps ITEMS onto new rows, it can't wrap the TEXT
+     inside a single nowrap item. `normal` lets flex-shrink actually compress
+     this element and its text reflow across lines instead of overflowing. */
+  white-space: normal;
+  min-width: 120px;
 }
 
 #command-bar input[type="text"] {
